@@ -1,65 +1,67 @@
-# LR Sentence Replay — Tampermonkey userscript cho Language Reactor (YouTube)
+# LR Sentence Replay — Tampermonkey userscript for Language Reactor (YouTube)
 
-Userscript chạy song song với extension **Language Reactor (LR) 5.1.8** trên YouTube, không sửa hay đóng gói lại LR. Script thêm hai tính năng:
+**English** | [Tiếng Việt](README.vi.md)
 
-1. **Smart Pause (Tự dừng câu)**: dừng ở cuối một câu hoàn chỉnh (theo timing phụ đề), thay vì dừng ở cuối mỗi dòng phụ đề.
-2. **Multi-line Replay**: chọn một khoảng dòng liên tục trong panel transcript bên phải của LR, phát lại một lần hoặc lặp.
+A userscript that runs alongside the **Language Reactor (LR) 5.1.8** extension on YouTube, without modifying or repackaging LR. It adds two features:
 
-## Cài đặt
+1. **Smart Pause**: pauses at the end of a complete sentence (based on subtitle timing) instead of at the end of every subtitle line.
+2. **Multi-line Replay**: select a contiguous range of rows in LR's transcript panel and replay it once or in a loop.
 
-1. Cài Tampermonkey trên Chrome (macOS). Với Chrome MV3, bật **Developer mode** tại `chrome://extensions` (hoặc bật "Allow User Scripts" trong chi tiết Tampermonkey) để Tampermonkey được chạy userscript.
-2. Mở Tampermonkey → *Create a new script* → dán toàn bộ nội dung `LanguageReactor_SentenceReplay.user.js` → Save. Cách khác: kéo thả file `.user.js` vào cửa sổ Chrome để Tampermonkey hiện trang cài đặt.
-3. Mở một video `https://www.youtube.com/watch?...`, bật LR và chọn một track phụ đề. Thanh công cụ **LR Sentence Replay** sẽ hiện cạnh panel transcript.
+## Installation
 
-Script cần chạy trong *page context* để đọc dữ liệu phụ đề của LR (`window.lln`). Metadata đã khai báo `@sandbox JavaScript` và `@grant unsafeWindow`. Nếu thanh công cụ báo "LR có trên trang nhưng không đọc được dữ liệu", mở Tampermonkey *Settings* (Config mode: Advanced), tìm mục sandbox/injection ở phần Security và đảm bảo nó không bị ép về chế độ `DOM`; sau đó tải lại trang.
+1. Install Tampermonkey in Chrome (macOS). On Chrome MV3, enable **Developer mode** at `chrome://extensions` (or turn on "Allow User Scripts" in Tampermonkey's details page) so Tampermonkey is allowed to run userscripts.
+2. Open Tampermonkey → *Create a new script* → paste the entire contents of `LanguageReactor_SentenceReplay.user.js` → Save. Alternatively, drag the `.user.js` file into a Chrome window to open Tampermonkey's install page.
+3. Open a `https://www.youtube.com/watch?...` video, enable LR and pick a subtitle track. The **LR Sentence Replay** toolbar appears next to the transcript panel.
 
-## Sử dụng
+The script must run in the *page context* to read LR's subtitle data (`window.lln`). The metadata already declares `@sandbox JavaScript` and `@grant unsafeWindow`. If the toolbar says "LR is on the page but its data is not reachable", open Tampermonkey *Settings* (Config mode: Advanced), find the sandbox/injection option under Security and make sure it is not forced to `DOM` mode; then reload the page.
 
-| Điều khiển | Tác dụng | Phím tắt |
+## Usage
+
+| Control | Effect | Shortcut |
 |---|---|---|
-| **Select** | Bật chế độ chọn: hiện checkbox trên mỗi dòng transcript. Click để chọn, Shift-click để chọn khoảng | Shift+E |
-| **Replay Selected** | Phát từ đầu dòng đầu tới cuối dòng cuối (+ đệm cuối) | Shift+R |
-| **Loop** | Bật/tắt lặp khoảng đã chọn | Shift+L |
-| **Stop** | Thoát replay/loop ngay và dừng video | Shift+X |
-| **Clear Selection** | Bỏ chọn | |
-| **Current sentence** | Chọn câu tại vị trí đang phát rồi phát lại (Shift+R cũng làm vậy khi chưa chọn gì) | |
-| **Smart Pause** | Bật/tắt tự dừng ở cuối câu | Shift+S |
-| ⚙ | Cài đặt: đệm cuối, độ trễ Smart Pause, ngưỡng khoảng lặng, độ dài câu tối đa, phím tắt, ngôn ngữ EN/VI, nạp file phụ đề, sao chép chẩn đoán | |
+| **Select** | Toggle selection mode: shows a checkbox on each transcript row. Click to select, Shift-click to select a range | Shift+E |
+| **Replay Selected** | Play from the start of the first row to the end of the last row (+ tail padding) | Shift+R |
+| **Loop** | Toggle looping of the selected range | Shift+L |
+| **Stop** | Exit replay/loop immediately and pause the video | Shift+X |
+| **Clear Selection** | Clear the selection | |
+| **Current sentence** | Select the sentence at the playhead and replay it (Shift+R does the same when nothing is selected) | |
+| **Smart Pause** | Toggle pausing at the end of each sentence | Shift+S |
+| ⚙ | Settings: tail padding, Smart Pause delay, gap threshold, max sentence length, shortcuts, EN/VI language, load subtitle file, copy diagnostics | |
 
-Quy tắc chọn dòng:
+Selection rules:
 
-- Vùng chọn luôn **liên tục**. Click một dòng không liền kề sẽ mở rộng thành khoảng bao quanh và hiện thông báo.
-- Chỉ bỏ được dòng đầu hoặc dòng cuối của khoảng; bỏ dòng ở giữa sẽ bị từ chối kèm thông báo.
-- Khi chế độ chọn đang bật, click vào **từ** vẫn mở từ điển của LR; click vào phần còn lại của dòng sẽ chọn dòng thay vì phát.
-- Khi chế độ chọn tắt, LR hoạt động như bình thường; các dòng đã chọn vẫn được tô viền cam.
-- Vùng chọn được giữ khi LR vẽ lại panel (cuộn, đóng/mở panel), và bị xoá khi đổi video hoặc đổi track phụ đề.
+- The selection is always **contiguous**. Clicking a non-adjacent row extends it to the enclosing range and shows a notice.
+- Only the first or last row of the range can be removed; removing a row in the middle is rejected with a notice.
+- While selection mode is on, clicking a **word** still opens LR's dictionary; clicking elsewhere on the row selects it instead of playing it.
+- While selection mode is off, LR behaves as usual; selected rows keep their orange outline.
+- The selection survives LR re-rendering the panel (scrolling, closing/reopening the panel) and is cleared when the video or the subtitle track changes.
 
-Phím tắt dùng tổ hợp **Shift** vì LR bỏ qua phím có Shift, còn YouTube không dùng Shift+R/L/X/S/E. Phím tắt bị bỏ qua khi đang gõ trong ô nhập liệu, ô tìm kiếm, bình luận, từ điển hoặc modal của LR. Script không chiếm phím Space.
+Shortcuts use **Shift** because LR ignores keys pressed with Shift, and YouTube does not use Shift+R/L/X/S/E. Shortcuts are ignored while typing in inputs, the search box, comments, LR's dictionary or LR's modals. The script does not take over the Space key.
 
-## Auto-pause của LR
+## LR auto-pause
 
-Nên **tắt auto-pause của LR** (phím `Q` hoặc toggle trong LR) khi dùng Smart Pause, vì LR sẽ dừng ở mọi dòng phụ đề. Khi phát hiện auto-pause LR đang bật trong lúc Smart Pause hoặc Replay hoạt động, thanh công cụ hiện cảnh báo kèm nút **Turn off LR auto-pause**.
+**Turn off LR's auto-pause** (the `Q` key or the toggle in LR) when using Smart Pause, because LR pauses at every subtitle line. If LR auto-pause is on while Smart Pause or Replay is active, the toolbar shows a warning with a **Turn off LR auto-pause** button.
 
-Trong lúc Replay, tùy chọn *"Bỏ qua auto-pause của LR trong lúc phát lại"* (mặc định bật) cho phép script tự phát tiếp khi chính LR dừng ở cuối một dòng bên trong khoảng chọn. Script chỉ làm vậy khi LR đánh dấu là tự dừng (`body[lln-player-state="lln-auto-paused"]`) và vị trí phát nằm sát cuối một cue. Người dùng tự bấm dừng thì video không bao giờ bị tự phát lại.
+During a replay, the *"Ignore LR auto-pause inside a replay"* setting (on by default) lets the script resume playback when LR itself pauses at the end of a line inside the selected range. The script only does this when LR marks the pause as automatic (`body[lln-player-state="lln-auto-paused"]`) and the playhead is right at the end of a cue. A pause made by the user is never resumed automatically.
 
-## Giới hạn đã biết
+## Known limitations
 
-- Nguồn timing là state nội bộ của LR (`window.lln.subManager.data`), vốn không phải API công khai. Một bản cập nhật LR có thể đổi cấu trúc này. Script sẽ báo rõ lỗi chứ không tự đoán timing.
-- Smart Pause là heuristic dựa trên dấu câu. Một cue chứa nhiều câu (ví dụ `"Yes. I think"`) không thể dừng giữa cue vì không có timing theo từ; script sẽ dừng ở cuối câu kết thúc sau đó.
-- Phụ đề tự động (ASR) không có dấu câu: script chuyển sang chia theo khoảng lặng (≥ 800 ms) và giới hạn độ dài câu (8 s).
-- Khi nạp file `.srt`/`.vtt` dự phòng, chỉ dùng được Smart Pause và "Current sentence". Chọn dòng trong panel cần phụ đề của LR (chỉ số dòng ánh xạ 1-1 với mảng phụ đề LR).
-- Quảng cáo giữa video (mid-roll) đổi nguồn video nên replay sẽ dừng; phát lại sau khi hết quảng cáo.
-- Chỉ hỗ trợ trang `youtube.com/watch` trên desktop (không hỗ trợ Shorts, embed, miniplayer).
+- The timing source is LR's internal state (`window.lln.subManager.data`), which is not a public API. An LR update may change this structure. The script reports a clear error instead of guessing timing.
+- Smart Pause is a punctuation-based heuristic. A cue containing several sentences (e.g. `"Yes. I think"`) cannot be paused mid-cue because there is no word-level timing; the script pauses at the end of the next sentence that ends on a cue boundary.
+- Auto-generated (ASR) subtitles have no punctuation: the script falls back to splitting on silence gaps (≥ 800 ms) and a maximum sentence length (8 s).
+- With a fallback `.srt`/`.vtt` file loaded, only Smart Pause and "Current sentence" are available. Selecting rows in the panel requires LR's subtitles (row indices map 1:1 to LR's subtitle array).
+- Mid-roll ads swap the video source, so the replay stops; replay again after the ad.
+- Only desktop `youtube.com/watch` pages are supported (no Shorts, embeds or miniplayer).
 
-## Xử lý sự cố
+## Troubleshooting
 
-- **Không thấy thanh công cụ**: chỉ hiện trên `/watch`. Kiểm tra Tampermonkey đã bật script và Chrome đã cho phép userscript.
-- **"Không phát hiện Language Reactor"**: LR chưa được bật hoặc chưa tải xong trên tab này; tải lại trang.
-- **"Hãy chọn track phụ đề"** / **"Video không có phụ đề"**: chọn phụ đề trong LR; video không có phụ đề thì không thể phát lại (script không tự tạo timing).
-- **Lỗi khác**: ⚙ → **Copy diagnostics**, hoặc chạy `LRSR.diagnostics()` trong DevTools Console, rồi gửi JSON kèm báo lỗi.
+- **Toolbar not visible**: it only appears on `/watch`. Check that the script is enabled in Tampermonkey and that Chrome allows userscripts.
+- **"Language Reactor not detected"**: LR is not enabled or has not finished loading on this tab; reload the page.
+- **"Choose a subtitle track"** / **"This video has no subtitles"**: pick subtitles in LR; videos without subtitles cannot be replayed (the script never invents timing).
+- **Other errors**: ⚙ → **Copy diagnostics**, or run `LRSR.diagnostics()` in the DevTools Console, and attach the JSON to your bug report.
 
-## Kiểm thử
+## Testing
 
-- Test logic (Node ≥ 18): `node --test tests/core.test.js`
-- Checklist thủ công trên YouTube + LR: xem `TESTING.md`.
-- Báo cáo kỹ thuật (selector và nguồn dữ liệu đã xác minh): xem `TECHNICAL_REPORT.md`.
+- Logic tests (Node ≥ 18): `node --test tests/core.test.js`
+- Manual checklist on YouTube + LR: see `TESTING.md`.
+- Technical report (verified selectors and data sources): see `TECHNICAL_REPORT.md`.
