@@ -26,6 +26,7 @@ The script must run in the *page context* to read LR's subtitle data (`window.ll
 | **Clear Selection** | Clear the selection | |
 | **↺ Replay sentence** | Replay the whole sentence Smart Pause just stopped at (e.g. both lines of a two-line sentence); otherwise the sentence at the playhead. Does not create a selection | **Z** (also Shift+R when nothing is selected) |
 | **Smart Pause** | Toggle pausing at the end of each sentence | Shift+S |
+| **Line Pause** | Toggle LR's built-in auto-pause (pause at the end of every subtitle line, same as LR's "AP" switch) | Q (LR's own key) |
 | ⚙ | Settings: tail padding, Smart Pause delay, gap threshold, max sentence length, shortcuts, EN/VI language, load subtitle file, copy diagnostics | |
 
 With Smart Pause on, a typical flow is: the video pauses at the end of a sentence (the status shows "Sentence end · Z to replay"), press **Z** or **↺ Replay sentence** to hear the whole sentence again from its first line, as many times as you like, then press Play to continue. Smart Pause stops just before the next line starts, so LR keeps highlighting the sentence you just heard.
@@ -42,7 +43,7 @@ Selection rules:
 
 ## LR auto-pause
 
-**Turn off LR's auto-pause** (the `Q` key or the toggle in LR) when using Smart Pause, because LR pauses at every subtitle line. If LR auto-pause is on while Smart Pause or Replay is active, the toolbar shows a warning with a **Turn off LR auto-pause** button.
+**Smart Pause** and **Line Pause** are mutually exclusive: turning one on turns the other off, and both can be off. Line Pause is LR's own auto-pause, so LR's "AP" switch and the `Q` key stay in sync with it; pressing `Q` while Smart Pause is on turns Smart Pause off with a notice. The status line shows the active mode ("Smart Pause ON", "Line Pause ON" or "Auto-pause OFF").
 
 During a replay, the *"Ignore LR auto-pause inside a replay"* setting (on by default) lets the script resume playback when LR itself pauses at the end of a line inside the selected range. The script only does this when LR marks the pause as automatic (`body[lln-player-state="lln-auto-paused"]`) and the playhead is right at the end of a cue. A pause made by the user is never resumed automatically.
 

@@ -2,7 +2,7 @@
 // @name         Language Reactor – Sentence Replay & Smart Auto-Pause
 // @name:vi      Language Reactor – Phát lại câu & Tự dừng thông minh
 // @namespace    https://local.userscripts/lr-sentence-replay
-// @version      1.2.0
+// @version      1.3.0
 // @description  Sentence-level Smart Auto-Pause and multi-line replay/loop for Language Reactor's YouTube transcript panel (built against LR 5.1.8). Does not modify the extension.
 // @description:vi Tự dừng ở cuối câu và chọn nhiều dòng phụ đề trong panel transcript của Language Reactor để phát lại/lặp (LR 5.1.8). Không sửa extension.
 // @match        https://www.youtube.com/*
@@ -413,7 +413,7 @@
   }
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
   const PAGE = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
   try {
     if (PAGE.__LRSR_ACTIVE__) return;
@@ -480,7 +480,6 @@
       replaying: 'Replaying',
       looping: 'Looping ×{n}',
       smartOn: 'Smart Pause ON',
-      smartOff: 'Smart Pause OFF',
       select: 'Select',
       selectTip: 'Selection mode: click rows (Shift-click for a range) in the LR transcript. Shift+E',
       replay: 'Replay Selected',
@@ -495,6 +494,11 @@
       smartPaused: 'Sentence end · Z to replay',
       smart: 'Smart Pause',
       smartTip: 'Pause at the end of each complete sentence. Shift+S',
+      line: 'Line Pause',
+      lineTip: 'LR built-in auto-pause: pause at the end of every subtitle line (same as LR “AP”, Q key). Turns Smart Pause off',
+      lineOn: 'Line Pause ON',
+      pauseOff: 'Auto-pause OFF',
+      smartOffForLine: 'LR auto-pause was turned on: Smart Pause turned off (only one pause mode at a time).',
       settings: 'Settings',
       collapse: 'Collapse/expand',
       lrWarn: 'LR auto-pause is ON: it pauses at every subtitle line and conflicts with Smart Pause/Replay.',
@@ -551,7 +555,6 @@
       replaying: 'Đang phát lại',
       looping: 'Đang lặp ×{n}',
       smartOn: 'Tự dừng câu: BẬT',
-      smartOff: 'Tự dừng câu: TẮT',
       select: 'Chọn',
       selectTip: 'Chế độ chọn: bấm vào dòng (Shift-click để chọn khoảng) trong transcript LR. Shift+E',
       replay: 'Phát đoạn chọn',
@@ -566,6 +569,11 @@
       smartPaused: 'Hết câu · bấm Z để nghe lại',
       smart: 'Tự dừng câu',
       smartTip: 'Dừng ở cuối mỗi câu hoàn chỉnh. Shift+S',
+      line: 'Dừng mỗi dòng',
+      lineTip: 'Auto-pause có sẵn của LR: dừng ở cuối mỗi dòng phụ đề (giống nút “AP” của LR, phím Q). Bật lên sẽ tắt Tự dừng câu',
+      lineOn: 'Dừng mỗi dòng: BẬT',
+      pauseOff: 'Tự dừng: TẮT',
+      smartOffForLine: 'Auto-pause của LR vừa được bật: đã tắt Tự dừng câu (mỗi lúc chỉ dùng một chế độ dừng).',
       settings: 'Cài đặt',
       collapse: 'Thu gọn/mở rộng',
       lrWarn: 'Auto-pause của LR đang BẬT: nó dừng ở mọi dòng phụ đề và xung đột với Tự dừng câu/Phát lại.',
@@ -650,6 +658,7 @@
     expectSeek: null,
     ourPauseUntil: 0,
     lastOverrideAt: 0,
+    lastLrAutoPause: null,
     raf: 0,
     boundaryTimer: 0,
     maintTimer: 0,
@@ -1038,19 +1047,40 @@
     return el ? !!el.checked : null;
   }
 
-  function disableLrAutoPause() {
+  function setLrAutoPause(on) {
     const el = document.getElementById('autoPause');
-    if (el && el.checked) el.click();
-    if (lrAutoPauseEnabled()) {
+    if (el && el.checked !== on) el.click();
+    if (lrAutoPauseEnabled() !== on) {
       try {
         const lln = getLln();
-        if (lln && lln.setMan && typeof lln.setMan.set === 'function') lln.setMan.set('autoPause', false);
+        if (lln && lln.setMan && typeof lln.setMan.set === 'function') lln.setMan.set('autoPause', on);
       } catch (_) {}
     }
+    S.lastLrAutoPause = on;
     setTimeout(() => {
-      if (lrAutoPauseEnabled()) toast(t('lrFixFailed'));
+      if (lrAutoPauseEnabled() !== on) toast(t('lrFixFailed'));
       updateUI();
     }, 150);
+  }
+
+  function disableLrAutoPause() {
+    setLrAutoPause(false);
+  }
+
+  function toggleLinePause() {
+    const on = lrAutoPauseEnabled() !== true;
+    if (on && S.prefs.smartPause) setSmart(false);
+    setLrAutoPause(on);
+    updateUI();
+  }
+
+  function syncPauseModes() {
+    const lr = lrAutoPauseEnabled();
+    if (lr === true && S.lastLrAutoPause === false && S.prefs.smartPause) {
+      setSmart(false);
+      toast(t('smartOffForLine'));
+    }
+    if (lr != null) S.lastLrAutoPause = lr;
   }
 
   // ------------------------------------------------------------ selection
@@ -1172,10 +1202,16 @@
   }
 
   function toggleSmart() {
-    S.prefs.smartPause = !S.prefs.smartPause;
+    setSmart(!S.prefs.smartPause);
+    if (S.prefs.smartPause && lrAutoPauseEnabled() === true) setLrAutoPause(false);
+  }
+
+  function setSmart(on) {
+    S.prefs.smartPause = on;
     savePrefs();
     S.smart.reset();
-    if (S.prefs.smartPause) refreshCues(false);
+    S.lastSmartPause = null;
+    if (on) refreshCues(false);
     ensureLoop();
     updateUI();
   }
@@ -1445,6 +1481,7 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
     E.clear = btn('clear', null, clearSelection);
     E.sentence = btn('sentence', 'sentenceTip', replayCurrentSentence);
     E.smart = btn('smart', 'smartTip', toggleSmart);
+    E.line = btn('line', 'lineTip', toggleLinePause);
     E.gear = el('button', { type: 'button', class: 'lrsr-icon', 'data-i18n-title': 'settings', text: '⚙', onclick: () => E.settings.classList.toggle('on') });
 
     E.warn = el('div', { class: 'lrsr-warn' }, [el('div', { 'data-i18n': 'lrWarn' }), btn('lrFix', null, disableLrAutoPause)]);
@@ -1493,7 +1530,7 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
 
     const body = el('div', { class: 'lrsr-body' }, [
       el('div', { class: 'lrsr-row' }, [E.select, E.replay, E.loop, E.stop, E.clear]),
-      el('div', { class: 'lrsr-row' }, [E.sentence, E.smart, E.gear]),
+      el('div', { class: 'lrsr-row' }, [E.sentence, E.smart, E.line, E.gear]),
       E.src,
       E.warn,
       E.toast,
@@ -1622,7 +1659,7 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
     if (S.selection && S.cues[S.selection.lo] && S.cues[S.selection.hi]) {
       state += ' (' + fmtTime(S.cues[S.selection.lo].begin) + '–' + fmtTime(S.cues[S.selection.hi].end) + ')';
     }
-    state += ' · ' + (S.prefs.smartPause ? t('smartOn') : t('smartOff'));
+    state += ' · ' + (S.prefs.smartPause ? t('smartOn') : lrAutoPauseEnabled() === true ? t('lineOn') : t('pauseOff'));
     E.status.textContent = state;
     E.status.title = state;
 
@@ -1630,6 +1667,9 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
     E.select.setAttribute('aria-pressed', String(S.selectMode));
     E.loop.setAttribute('aria-pressed', String(!!S.prefs.loop));
     E.smart.setAttribute('aria-pressed', String(!!S.prefs.smartPause));
+    const lrAp = lrAutoPauseEnabled();
+    E.line.setAttribute('aria-pressed', String(lrAp === true));
+    E.line.disabled = lrAp == null;
     E.replay.disabled = !S.selection || !hasCues;
     E.stop.disabled = !S.replay;
     E.clear.disabled = !S.selection;
@@ -1644,7 +1684,7 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
       E.src.textContent = cueUnavailableMessage();
     }
 
-    const conflict = lrAutoPauseEnabled() === true && (S.prefs.smartPause || !!S.replay);
+    const conflict = lrAp === true && (S.prefs.smartPause || (!!S.replay && !S.prefs.overrideLrAutoPause));
     E.warn.classList.toggle('on', conflict);
   }
 
@@ -1767,6 +1807,7 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
       bindVideo(null);
       attachTranscript();
     }
+    syncPauseModes();
     updateUI();
     positionToolbar();
   }

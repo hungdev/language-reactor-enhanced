@@ -26,6 +26,7 @@ Script cần chạy trong *page context* để đọc dữ liệu phụ đề c�
 | **Clear Selection** | Bỏ chọn | |
 | **↺ Phát lại câu** | Phát lại trọn câu mà Smart Pause vừa dừng (ví dụ cả hai dòng của một câu dài hai dòng); nếu không thì phát câu tại vị trí đang phát. Không tạo vùng chọn | **Z** (hoặc Shift+R khi chưa chọn dòng nào) |
 | **Smart Pause** | Bật/tắt tự dừng ở cuối câu | Shift+S |
+| **Line Pause** (Dừng mỗi dòng) | Bật/tắt auto-pause có sẵn của LR (dừng ở cuối mỗi dòng phụ đề, giống công tắc "AP" của LR) | Q (phím của LR) |
 | ⚙ | Cài đặt: đệm cuối, độ trễ Smart Pause, ngưỡng khoảng lặng, độ dài câu tối đa, phím tắt, ngôn ngữ EN/VI, nạp file phụ đề, sao chép chẩn đoán | |
 
 Khi bật Smart Pause, cách dùng thường là: video dừng ở cuối câu (thanh trạng thái hiện "Hết câu · bấm Z để nghe lại"), bấm **Z** hoặc **↺ Phát lại câu** để nghe lại cả câu từ dòng đầu, bao nhiêu lần tuỳ ý, rồi bấm Play để nghe tiếp. Smart Pause dừng ngay trước khi dòng sau bắt đầu, nên LR vẫn tô câu vừa nghe.
@@ -42,7 +43,7 @@ Quy tắc chọn dòng:
 
 ## Auto-pause của LR
 
-Nên **tắt auto-pause của LR** (phím `Q` hoặc toggle trong LR) khi dùng Smart Pause, vì LR sẽ dừng ở mọi dòng phụ đề. Khi phát hiện auto-pause LR đang bật trong lúc Smart Pause hoặc Replay hoạt động, thanh công cụ hiện cảnh báo kèm nút **Turn off LR auto-pause**.
+**Smart Pause** và **Dừng mỗi dòng** loại trừ nhau: bật cái này sẽ tắt cái kia, và có thể tắt cả hai. "Dừng mỗi dòng" chính là auto-pause của LR, nên công tắc "AP" và phím `Q` của LR luôn đồng bộ với nút này; bấm `Q` khi đang bật Smart Pause sẽ tắt Smart Pause kèm thông báo. Thanh trạng thái hiện chế độ đang dùng ("Tự dừng câu: BẬT", "Dừng mỗi dòng: BẬT" hoặc "Tự dừng: TẮT").
 
 Trong lúc Replay, tùy chọn *"Bỏ qua auto-pause của LR trong lúc phát lại"* (mặc định bật) cho phép script tự phát tiếp khi chính LR dừng ở cuối một dòng bên trong khoảng chọn. Script chỉ làm vậy khi LR đánh dấu là tự dừng (`body[lln-player-state="lln-auto-paused"]`) và vị trí phát nằm sát cuối một cue. Người dùng tự bấm dừng thì video không bao giờ bị tự phát lại.
 

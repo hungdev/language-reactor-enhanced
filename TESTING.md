@@ -43,6 +43,7 @@ Chuẩn bị: cài script, mở một video có phụ đề người làm (ví d
 - [ ] **Stop** khi đang lặp: video dừng ngay, không tự phát lại.
 - [ ] Đang lặp, tắt Select rồi bấm một dòng LR ngoài khoảng: LR nhảy tới dòng đó, replay tự thoát kèm thông báo.
 - [ ] Đang lặp, đổi tốc độ 0.5x/2x: vẫn lặp đúng khoảng.
+- [ ] Nút "Line Pause": bật thì công tắc AP của LR bật và Smart Pause tắt; bật Smart Pause thì AP tắt; bấm Line Pause lần nữa thì cả hai tắt; bấm Q khi Smart Pause đang bật thì Smart Pause tự tắt kèm thông báo.
 - [ ] Bật Smart Pause, để video dừng ở cuối một câu dài 2 dòng, bấm Z: phát lại cả 2 dòng từ đầu câu rồi dừng; bấm Z lần nữa vẫn đúng câu đó. Gõ "z" trong ô tìm kiếm không kích hoạt.
 - [ ] Shift+R / Shift+L / Shift+X / Shift+S / Shift+E hoạt động; gõ các chữ này trong ô tìm kiếm hoặc bình luận YouTube không kích hoạt script. Space vẫn là phím của YouTube.
 
