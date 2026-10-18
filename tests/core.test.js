@@ -17,6 +17,27 @@ test('acceptance: Pavlov cues form one sentence ending at cue B end', () => {
   assert.equal(g[0].reason, 'punct');
 });
 
+test('zero-length preview cues (rolling YouTube captions) never end a sentence', () => {
+  const zw = '\u200B\u200B\u200B \u200B';
+  const cues = [
+    cue(0, 0, zw + 'If this couple can lose 150 pounds\nbefore their WEDDING day,'),
+    cue(0, 4154, zw + 'If this couple can lose 150 pounds\nbefore their WEDDING day,'),
+    cue(4234, 4234, zw + 'they win $250,000.'),
+    cue(4234, 6601, zw + 'they win $250,000.'),
+    cue(6601, 6601, zw + 'Whaaat the HECK?!'),
+    cue(6601, 7701, zw + 'Whaaat the HECK?!'),
+    cue(7734, 7734, zw + 'And their wedding will be the first\ntime'),
+    cue(7734, 9367, zw + 'And their wedding will be the first\ntime'),
+    cue(9434, 9434, zw + 'ANYONE in their family sees them.'),
+    cue(9434, 10601, zw + 'ANYONE in their family sees them.'),
+    cue(11868, 11868, zw + 'Ready to start?'),
+    cue(11868, 12587, zw + 'Ready to start?'),
+  ];
+  const g = groupsOf(cues);
+  assert.deepEqual(spans(g), [[0, 3], [4, 5], [6, 9], [10, 11]]);
+  assert.deepEqual(g.map((x) => [x.start, x.end]), [[0, 6601], [6601, 7701], [7734, 10601], [11868, 12587]]);
+});
+
 test('terminators with trailing quotes and brackets', () => {
   assert.equal(Core.classifyEnding('He said "stop."', 'Then he left.'), 'end');
   assert.equal(Core.classifyEnding('Really?)', 'Yes.'), 'end');
@@ -117,8 +138,27 @@ test('computeReplayInterval: start of first, end of last plus tail', () => {
   assert.deepEqual(Core.computeReplayInterval(cues, 0, 1, { tailMs: 150 }), { ok: true, lo: 0, hi: 1, start: 1000, end: 3650 });
   assert.deepEqual(Core.computeReplayInterval(cues, 2, 0, { tailMs: 0 }), { ok: true, lo: 0, hi: 2, start: 1000, end: 5000 });
   assert.equal(Core.computeReplayInterval(cues, 1, 2, { tailMs: 500, durationMs: 5200 }).end, 5200);
-  assert.equal(Core.computeReplayInterval(cues, 0, 0, { tailMs: 99999 }).end, 3000);
-  assert.equal(Core.computeReplayInterval(cues, 0, 0, { tailMs: -50 }).end, 2000);
+  assert.equal(Core.computeReplayInterval(cues, 2, 2, { tailMs: 99999 }).end, 6000);
+  assert.equal(Core.computeReplayInterval(cues, 2, 2, { tailMs: -50 }).end, 5000);
+});
+
+test('tail never runs into the next cue, so LR keeps showing the finished line', () => {
+  const cues = [cue(1000, 2000, 'a'), cue(2000, 3500, 'b'), cue(3567, 5000, 'c')];
+  assert.equal(Core.computeReplayInterval(cues, 0, 0, { tailMs: 150 }).end, 1980);
+  assert.equal(Core.computeReplayInterval(cues, 1, 1, { tailMs: 150 }).end, 3547);
+  assert.equal(Core.tailBoundary(3500, 80, 3567), 3547);
+  assert.equal(Core.tailBoundary(3500, 80, 9000), 3580);
+  assert.equal(Core.tailBoundary(3500, 80, null), 3580);
+  const g = groupsOf([cue(0, 2000, 'One two three four.'), cue(2067, 4000, 'Five six.')]);
+  assert.equal(g[0].nextStart, 2067);
+  assert.equal(g[1].nextStart, null);
+  const p = Core.createSmartPauser();
+  let paused = null;
+  for (let t = 0; t <= 2200 && paused == null; t += 16) {
+    const r = p.step(g, t, 80);
+    if (r.pause) paused = r.boundary;
+  }
+  assert.equal(paused, 2047);
 });
 
 test('computeReplayInterval: explicit errors, never fabricated timing', () => {

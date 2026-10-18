@@ -24,9 +24,11 @@ Script cần chạy trong *page context* để đọc dữ liệu phụ đề c�
 | **Loop** | Bật/tắt lặp khoảng đã chọn | Shift+L |
 | **Stop** | Thoát replay/loop ngay và dừng video | Shift+X |
 | **Clear Selection** | Bỏ chọn | |
-| **Current sentence** | Chọn câu tại vị trí đang phát rồi phát lại (Shift+R cũng làm vậy khi chưa chọn gì) | |
+| **↺ Phát lại câu** | Phát lại trọn câu mà Smart Pause vừa dừng (ví dụ cả hai dòng của một câu dài hai dòng); nếu không thì phát câu tại vị trí đang phát. Không tạo vùng chọn | **Z** (hoặc Shift+R khi chưa chọn dòng nào) |
 | **Smart Pause** | Bật/tắt tự dừng ở cuối câu | Shift+S |
 | ⚙ | Cài đặt: đệm cuối, độ trễ Smart Pause, ngưỡng khoảng lặng, độ dài câu tối đa, phím tắt, ngôn ngữ EN/VI, nạp file phụ đề, sao chép chẩn đoán | |
+
+Khi bật Smart Pause, cách dùng thường là: video dừng ở cuối câu (thanh trạng thái hiện "Hết câu · bấm Z để nghe lại"), bấm **Z** hoặc **↺ Phát lại câu** để nghe lại cả câu từ dòng đầu, bao nhiêu lần tuỳ ý, rồi bấm Play để nghe tiếp. Smart Pause dừng ngay trước khi dòng sau bắt đầu, nên LR vẫn tô câu vừa nghe.
 
 Quy tắc chọn dòng:
 
@@ -36,7 +38,7 @@ Quy tắc chọn dòng:
 - Khi chế độ chọn tắt, LR hoạt động như bình thường; các dòng đã chọn vẫn được tô viền cam.
 - Vùng chọn được giữ khi LR vẽ lại panel (cuộn, đóng/mở panel), và bị xoá khi đổi video hoặc đổi track phụ đề.
 
-Phím tắt dùng tổ hợp **Shift** vì LR bỏ qua phím có Shift, còn YouTube không dùng Shift+R/L/X/S/E. Phím tắt bị bỏ qua khi đang gõ trong ô nhập liệu, ô tìm kiếm, bình luận, từ điển hoặc modal của LR. Script không chiếm phím Space.
+**Z** là phím đơn duy nhất: cả LR (dùng A, S, D, W, E, R, F, Q, 1, 2, Space) lẫn YouTube đều không dùng phím này. Các phím tắt còn lại dùng tổ hợp **Shift** vì LR bỏ qua phím có Shift, còn YouTube không dùng Shift+R/L/X/S/E. Khi đang có vùng chọn, Z phát lại vùng chọn giống Shift+R. Phím tắt bị bỏ qua khi đang gõ trong ô nhập liệu, ô tìm kiếm, bình luận, từ điển hoặc modal của LR. Script không chiếm phím Space.
 
 ## Auto-pause của LR
 
@@ -49,7 +51,7 @@ Trong lúc Replay, tùy chọn *"Bỏ qua auto-pause của LR trong lúc phát l
 - Nguồn timing là state nội bộ của LR (`window.lln.subManager.data`), vốn không phải API công khai. Một bản cập nhật LR có thể đổi cấu trúc này. Script sẽ báo rõ lỗi chứ không tự đoán timing.
 - Smart Pause là heuristic dựa trên dấu câu. Một cue chứa nhiều câu (ví dụ `"Yes. I think"`) không thể dừng giữa cue vì không có timing theo từ; script sẽ dừng ở cuối câu kết thúc sau đó.
 - Phụ đề tự động (ASR) không có dấu câu: script chuyển sang chia theo khoảng lặng (≥ 800 ms) và giới hạn độ dài câu (8 s).
-- Khi nạp file `.srt`/`.vtt` dự phòng, chỉ dùng được Smart Pause và "Current sentence". Chọn dòng trong panel cần phụ đề của LR (chỉ số dòng ánh xạ 1-1 với mảng phụ đề LR).
+- Khi nạp file `.srt`/`.vtt` dự phòng, chỉ dùng được Smart Pause và "Phát lại câu". Chọn dòng trong panel cần phụ đề của LR (chỉ số dòng ánh xạ 1-1 với mảng phụ đề LR).
 - Quảng cáo giữa video (mid-roll) đổi nguồn video nên replay sẽ dừng; phát lại sau khi hết quảng cáo.
 - Chỉ hỗ trợ trang `youtube.com/watch` trên desktop (không hỗ trợ Shorts, embed, miniplayer).
 

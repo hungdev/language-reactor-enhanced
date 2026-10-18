@@ -24,9 +24,11 @@ The script must run in the *page context* to read LR's subtitle data (`window.ll
 | **Loop** | Toggle looping of the selected range | Shift+L |
 | **Stop** | Exit replay/loop immediately and pause the video | Shift+X |
 | **Clear Selection** | Clear the selection | |
-| **Current sentence** | Select the sentence at the playhead and replay it (Shift+R does the same when nothing is selected) | |
+| **↺ Replay sentence** | Replay the whole sentence Smart Pause just stopped at (e.g. both lines of a two-line sentence); otherwise the sentence at the playhead. Does not create a selection | **Z** (also Shift+R when nothing is selected) |
 | **Smart Pause** | Toggle pausing at the end of each sentence | Shift+S |
 | ⚙ | Settings: tail padding, Smart Pause delay, gap threshold, max sentence length, shortcuts, EN/VI language, load subtitle file, copy diagnostics | |
+
+With Smart Pause on, a typical flow is: the video pauses at the end of a sentence (the status shows "Sentence end · Z to replay"), press **Z** or **↺ Replay sentence** to hear the whole sentence again from its first line, as many times as you like, then press Play to continue. Smart Pause stops just before the next line starts, so LR keeps highlighting the sentence you just heard.
 
 Selection rules:
 
@@ -36,7 +38,7 @@ Selection rules:
 - While selection mode is off, LR behaves as usual; selected rows keep their orange outline.
 - The selection survives LR re-rendering the panel (scrolling, closing/reopening the panel) and is cleared when the video or the subtitle track changes.
 
-Shortcuts use **Shift** because LR ignores keys pressed with Shift, and YouTube does not use Shift+R/L/X/S/E. Shortcuts are ignored while typing in inputs, the search box, comments, LR's dictionary or LR's modals. The script does not take over the Space key.
+**Z** is the only single-key shortcut: neither LR (which uses A, S, D, W, E, R, F, Q, 1, 2, Space) nor YouTube uses it. The other shortcuts use **Shift** because LR ignores keys pressed with Shift, and YouTube does not use Shift+R/L/X/S/E. With a selection, Z replays the selection like Shift+R. Shortcuts are ignored while typing in inputs, the search box, comments, LR's dictionary or LR's modals. The script does not take over the Space key.
 
 ## LR auto-pause
 
@@ -49,7 +51,7 @@ During a replay, the *"Ignore LR auto-pause inside a replay"* setting (on by def
 - The timing source is LR's internal state (`window.lln.subManager.data`), which is not a public API. An LR update may change this structure. The script reports a clear error instead of guessing timing.
 - Smart Pause is a punctuation-based heuristic. A cue containing several sentences (e.g. `"Yes. I think"`) cannot be paused mid-cue because there is no word-level timing; the script pauses at the end of the next sentence that ends on a cue boundary.
 - Auto-generated (ASR) subtitles have no punctuation: the script falls back to splitting on silence gaps (≥ 800 ms) and a maximum sentence length (8 s).
-- With a fallback `.srt`/`.vtt` file loaded, only Smart Pause and "Current sentence" are available. Selecting rows in the panel requires LR's subtitles (row indices map 1:1 to LR's subtitle array).
+- With a fallback `.srt`/`.vtt` file loaded, only Smart Pause and "Replay sentence" are available. Selecting rows in the panel requires LR's subtitles (row indices map 1:1 to LR's subtitle array).
 - Mid-roll ads swap the video source, so the replay stops; replay again after the ad.
 - Only desktop `youtube.com/watch` pages are supported (no Shorts, embeds or miniplayer).
 

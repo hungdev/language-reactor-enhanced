@@ -2,7 +2,7 @@
 // @name         Language Reactor – Sentence Replay & Smart Auto-Pause
 // @name:vi      Language Reactor – Phát lại câu & Tự dừng thông minh
 // @namespace    https://local.userscripts/lr-sentence-replay
-// @version      1.0.0
+// @version      1.2.0
 // @description  Sentence-level Smart Auto-Pause and multi-line replay/loop for Language Reactor's YouTube transcript panel (built against LR 5.1.8). Does not modify the extension.
 // @description:vi Tự dừng ở cuối câu và chọn nhiều dòng phụ đề trong panel transcript của Language Reactor để phát lại/lặp (LR 5.1.8). Không sửa extension.
 // @match        https://www.youtube.com/*
@@ -117,6 +117,12 @@
       return { considered, punctuated, ratio };
     }
 
+    const INSTANT_CUE_MS = 20;
+
+    function isInstantCue(c) {
+      return c.end - c.begin < INSTANT_CUE_MS;
+    }
+
     const DEFAULT_GROUP_OPTS = {
       gapBreakMs: 2000,
       maxSentenceMs: 15000,
@@ -132,15 +138,20 @@
       const groups = [];
       if (!cues || !cues.length) return { groups, punctuated, stats };
       let first = 0;
+      let nextReal = -1;
       for (let i = 0; i < cues.length; i++) {
         const cue = cues[i];
         const next = cues[i + 1];
         let reason = null;
         if (!next) {
           reason = 'last';
-        } else {
+        } else if (!isInstantCue(cue)) {
+          if (nextReal <= i) {
+            nextReal = i + 1;
+            while (nextReal < cues.length && isInstantCue(cues[nextReal])) nextReal++;
+          }
           const gap = next.begin - cue.end;
-          const ending = classifyEnding(cue.text, next.text);
+          const ending = classifyEnding(cue.text, (cues[nextReal] || next).text);
           if (punctuated) {
             if (ending === 'end') reason = 'punct';
             else if (gap >= o.gapBreakMs) reason = 'gap';
@@ -159,6 +170,7 @@
           first = i + 1;
         }
       }
+      for (let k = 0; k < groups.length; k++) groups[k].nextStart = k + 1 < groups.length ? groups[k + 1].start : null;
       return { groups, punctuated, stats };
     }
 
@@ -193,10 +205,21 @@
 
     const ARM_LOOKAHEAD_MS = 300;
     const ARM_MIN_REMAINING_MS = 150;
+    const NEXT_CUE_MARGIN_MS = 20;
+
+    function tailBoundary(end, tailMs, nextStart) {
+      const b = end + (tailMs || 0);
+      if (nextStart == null || !Number.isFinite(nextStart)) return b;
+      return Math.min(b, Math.max(nextStart, end) - NEXT_CUE_MARGIN_MS);
+    }
+
+    function groupBoundary(g, tailMs) {
+      return tailBoundary(g.end, tailMs, g.nextStart);
+    }
 
     function findArmableGroup(groups, t, tailMs) {
       if (!groups || !groups.length) return -1;
-      const armable = (i) => i >= 0 && i < groups.length && t < groups[i].end + (tailMs || 0) - ARM_MIN_REMAINING_MS;
+      const armable = (i) => i >= 0 && i < groups.length && t < groupBoundary(groups[i], tailMs) - ARM_MIN_REMAINING_MS;
       const cur = lastIndexStartingBefore(groups, t);
       if (armable(cur)) return cur;
       const next = cur + 1;
@@ -220,7 +243,7 @@
             if (!g || t < g.start - 600 || t > g.end + tail + 800) {
               armed = -1;
             } else {
-              const boundary = g.end + tail;
+              const boundary = groupBoundary(g, tail);
               if (t >= boundary) {
                 const gi = armed;
                 armed = -1;
@@ -232,7 +255,7 @@
           const gi = findArmableGroup(groups, t, tail);
           if (gi >= 0) {
             armed = gi;
-            return { pause: false, group: gi, boundary: groups[gi].end + tail };
+            return { pause: false, group: gi, boundary: groupBoundary(groups[gi], tail) };
           }
           return { pause: false, group: -1, boundary: null };
         },
@@ -254,7 +277,8 @@
       }
       const tail = Math.min(Math.max(Number(o.tailMs) || 0, 0), 1000);
       const start = Math.max(0, cues[lo].begin);
-      let end = cues[hi].end + tail;
+      const following = cues[hi + 1];
+      let end = tailBoundary(cues[hi].end, tail, following && Number.isFinite(following.begin) ? following.begin : null);
       if (Number.isFinite(o.durationMs) && o.durationMs > 0) end = Math.min(end, o.durationMs);
       if (end - start < 50) return { ok: false, error: 'TOO_SHORT' };
       return { ok: true, lo, hi, start, end };
@@ -369,6 +393,7 @@
       findGroupAt,
       findCueAt,
       findArmableGroup,
+      tailBoundary,
       createSmartPauser,
       computeReplayInterval,
       replayAction,
@@ -388,7 +413,7 @@
   }
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.2.0';
   const PAGE = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
   try {
     if (PAGE.__LRSR_ACTIVE__) return;
@@ -459,14 +484,15 @@
       select: 'Select',
       selectTip: 'Selection mode: click rows (Shift-click for a range) in the LR transcript. Shift+E',
       replay: 'Replay Selected',
-      replayTip: 'Replay the selected interval. Shift+R (replays current sentence when nothing is selected)',
+      replayTip: 'Replay the selected interval. Shift+R (Z or Shift+R replays the current sentence when nothing is selected)',
       loop: 'Loop',
       loopTip: 'Loop the selected interval. Shift+L',
       stop: 'Stop',
       stopTip: 'Stop replay/loop. Shift+X',
       clear: 'Clear Selection',
-      sentence: 'Current sentence',
-      sentenceTip: 'Select and replay the sentence at the playhead',
+      sentence: '↺ Replay sentence',
+      sentenceTip: 'Replay the sentence Smart Pause just stopped at (or the sentence at the playhead). Key: Z',
+      smartPaused: 'Sentence end · Z to replay',
       smart: 'Smart Pause',
       smartTip: 'Pause at the end of each complete sentence. Shift+S',
       settings: 'Settings',
@@ -494,7 +520,7 @@
       middleReject: 'Only the first or last row of a range can be removed. Use Clear Selection to start over.',
       seekOut: 'Replay stopped: playback jumped outside the selected range.',
       trackChanged: 'Subtitle track changed: selection cleared.',
-      fileRows: 'Row selection needs LR subtitles. With a file loaded, use “Current sentence” and Smart Pause.',
+      fileRows: 'Row selection needs LR subtitles. With a file loaded, use “Replay sentence” and Smart Pause.',
       errNO_CUES: 'No subtitle timing available.',
       errOUT_OF_RANGE: 'Selection no longer matches the subtitles. Select again.',
       errBAD_TIMING: 'Selected cues have invalid timing.',
@@ -505,7 +531,7 @@
       sSmartTail: 'Smart Pause delay after sentence end (ms)',
       sGap: 'Silence that forces a sentence break (ms)',
       sMax: 'Maximum sentence length before forced pause (ms)',
-      sShortcuts: 'Keyboard shortcuts (Shift+R/L/X/S/E)',
+      sShortcuts: 'Keyboard shortcuts (Z, Shift+R/L/X/S/E)',
       sOverride: 'Ignore LR auto-pause inside a replay',
       sLang: 'Language',
       sFile: 'Load .srt/.vtt for this video (fallback)',
@@ -529,14 +555,15 @@
       select: 'Chọn',
       selectTip: 'Chế độ chọn: bấm vào dòng (Shift-click để chọn khoảng) trong transcript LR. Shift+E',
       replay: 'Phát đoạn chọn',
-      replayTip: 'Phát lại khoảng đã chọn. Shift+R (phát câu hiện tại nếu chưa chọn)',
+      replayTip: 'Phát lại khoảng đã chọn. Shift+R (Z hoặc Shift+R phát câu hiện tại nếu chưa chọn)',
       loop: 'Lặp',
       loopTip: 'Lặp khoảng đã chọn. Shift+L',
       stop: 'Dừng',
       stopTip: 'Dừng phát lại/lặp. Shift+X',
       clear: 'Bỏ chọn',
-      sentence: 'Câu hiện tại',
-      sentenceTip: 'Chọn và phát lại câu tại vị trí đang phát',
+      sentence: '↺ Phát lại câu',
+      sentenceTip: 'Phát lại câu mà Tự dừng câu vừa dừng (hoặc câu tại vị trí đang phát). Phím: Z',
+      smartPaused: 'Hết câu · bấm Z để nghe lại',
       smart: 'Tự dừng câu',
       smartTip: 'Dừng ở cuối mỗi câu hoàn chỉnh. Shift+S',
       settings: 'Cài đặt',
@@ -564,7 +591,7 @@
       middleReject: 'Chỉ bỏ được dòng đầu hoặc cuối của khoảng. Dùng “Bỏ chọn” để chọn lại.',
       seekOut: 'Đã dừng phát lại: vị trí phát nhảy ra ngoài khoảng đã chọn.',
       trackChanged: 'Track phụ đề đã đổi: đã bỏ chọn.',
-      fileRows: 'Chọn dòng cần phụ đề của LR. Khi dùng file, hãy dùng “Câu hiện tại” và Tự dừng câu.',
+      fileRows: 'Chọn dòng cần phụ đề của LR. Khi dùng file, hãy dùng “Phát lại câu” và Tự dừng câu.',
       errNO_CUES: 'Không có timing phụ đề.',
       errOUT_OF_RANGE: 'Vùng chọn không còn khớp với phụ đề. Hãy chọn lại.',
       errBAD_TIMING: 'Các dòng đã chọn có timing không hợp lệ.',
@@ -575,7 +602,7 @@
       sSmartTail: 'Độ trễ tự dừng sau cuối câu (ms)',
       sGap: 'Khoảng lặng buộc ngắt câu (ms)',
       sMax: 'Độ dài câu tối đa trước khi buộc dừng (ms)',
-      sShortcuts: 'Phím tắt (Shift+R/L/X/S/E)',
+      sShortcuts: 'Phím tắt (Z, Shift+R/L/X/S/E)',
       sOverride: 'Bỏ qua auto-pause của LR trong lúc phát lại',
       sLang: 'Ngôn ngữ',
       sFile: 'Nạp .srt/.vtt cho video này (dự phòng)',
@@ -1077,12 +1104,20 @@
 
   function startReplay() {
     refreshCues(false);
+    if (!S.selection) {
+      if (!S.video) return toast(t('noVideo'));
+      if (!S.cues.length) return toast(cueUnavailableMessage());
+      return toast(t('selectFirst'));
+    }
+    startReplayRange(S.selection.lo, S.selection.hi);
+  }
+
+  function startReplayRange(lo, hi) {
     const v = S.video;
     if (!v) return toast(t('noVideo'));
     if (isAdShowing(v)) return toast(t('inAd'));
     if (!S.cues.length) return toast(cueUnavailableMessage());
-    if (!S.selection) return toast(t('selectFirst'));
-    const iv = Core.computeReplayInterval(S.cues, S.selection.lo, S.selection.hi, {
+    const iv = Core.computeReplayInterval(S.cues, lo, hi, {
       tailMs: S.prefs.replayTailMs,
       durationMs: Number.isFinite(v.duration) ? v.duration * 1000 : null,
     });
@@ -1092,6 +1127,7 @@
     seekTo(iv.start);
     playVideo();
     ensureLoop();
+    scheduleDecorate();
     updateUI();
   }
 
@@ -1099,6 +1135,7 @@
     S.replay = null;
     clearBoundaryTimer();
     S.smart.reset();
+    scheduleDecorate();
     updateUI();
   }
 
@@ -1114,13 +1151,18 @@
     if (!v) return toast(t('noVideo'));
     if (!S.cues.length || !S.groups.length) return toast(cueUnavailableMessage());
     const now = v.currentTime * 1000;
-    let gi = Core.findGroupAt(S.groups, now);
-    const lsp = S.lastSmartPause;
-    if (v.paused && lsp && S.groups[lsp.group] && Math.abs(now - S.groups[lsp.group].end) < 800) gi = lsp.group;
+    const recent = recentSmartPauseGroup(now);
+    const gi = recent != null ? recent : Core.findGroupAt(S.groups, now);
     const g = S.groups[gi];
     if (!g) return toast(t('errNO_CUES'));
-    setSelection({ lo: g.first, hi: g.last, anchor: g.first });
-    startReplay();
+    startReplayRange(g.first, g.last);
+  }
+
+  function recentSmartPauseGroup(now) {
+    const lsp = S.lastSmartPause;
+    const g = lsp && S.groups[lsp.group];
+    if (!g || now < g.start - 200 || now > g.end + 2500) return null;
+    return lsp.group;
   }
 
   function toggleLoop() {
@@ -1177,7 +1219,7 @@
     const c = TI.container;
     if (document.body) document.body.classList.toggle('lrsr-select-mode', S.selectMode && S.cueSource === 'LR');
     if (!c || !c.isConnected) return;
-    const sel = S.cueSource === 'LR' ? S.selection : null;
+    const sel = S.cueSource === 'LR' ? S.selection || S.replay : null;
 
     for (const row of c.querySelectorAll(':scope > .lln-vertical-view-sub.lrsr-selected')) {
       const i = parseInt(row.getAttribute('data-index'), 10);
@@ -1207,7 +1249,8 @@
           row.appendChild(cb);
         }
         const i = parseInt(row.getAttribute('data-index'), 10);
-        const checked = !!sel && i >= sel.lo && i <= sel.hi ? 'true' : 'false';
+        const own = S.selection;
+        const checked = !!own && i >= own.lo && i <= own.hi ? 'true' : 'false';
         if (cb.getAttribute('aria-checked') !== checked) cb.setAttribute('aria-checked', checked);
       }
     } else {
@@ -1259,10 +1302,16 @@
 
   function onKeyDown(e) {
     if (!S.prefs.shortcuts || !isWatchPage()) return;
-    if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (!e.shiftKey && e.code !== 'KeyZ') return;
     if (isEditableTarget(e)) return;
     let handled = true;
     switch (e.code) {
+      case 'KeyZ':
+        if (e.shiftKey) handled = false;
+        else if (S.selection) startReplay();
+        else replayCurrentSentence();
+        break;
       case 'KeyR':
         if (S.selection) startReplay();
         else replayCurrentSentence();
@@ -1568,6 +1617,7 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
     let state;
     if (S.replay) state = S.prefs.loop ? t('looping', { n: S.replay.loops + 1 }) : t('replaying');
     else if (S.selection) state = t('selected', { n: S.selection.hi - S.selection.lo + 1 });
+    else if (S.video && S.video.paused && recentSmartPauseGroup(S.video.currentTime * 1000) != null) state = t('smartPaused');
     else state = t('idle');
     if (S.selection && S.cues[S.selection.lo] && S.cues[S.selection.hi]) {
       state += ' (' + fmtTime(S.cues[S.selection.lo].begin) + '–' + fmtTime(S.cues[S.selection.hi].end) + ')';

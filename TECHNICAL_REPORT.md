@@ -26,6 +26,8 @@ window.lln.subManager.data            // getter webpack (live binding), đổi o
 
 - LR lấy phụ đề `json3` từ `/api/timedtext` (kèm token `pot` mà nó bắt được từ XHR của YouTube), parse trong hàm `we()`. Với ASR, LR gộp từng cặp event thành một cue và cắt chồng lấn (`e.end = next.tStartMs`).
 - Userscript chỉ **đọc** `subManager.data`. Nó kiểm tra `mm.movieId === videoId` trong URL để không dùng phụ đề cũ sau khi điều hướng SPA, và kiểm tra `begin`/`end` là số hữu hạn với `end ≥ begin`. Nếu không thoả, script báo lỗi thay vì đoán.
+- Caption kiểu "cuộn" (ví dụ `RE3_PGwDwhw`) có mỗi dòng xuất hiện hai lần: một cue dài 0 ms (`begin == end`) rồi cue thật cùng nội dung. LR render cả hai thành hai dòng trong panel. Khi chia câu, script không bao giờ kết thúc câu tại cue dài dưới 20 ms, và lấy cue thật kế tiếp để xét dấu câu.
+- Khoảng đệm cuối (Smart Pause 80 ms, Replay 150 ms) bị giới hạn tại `cue kế tiếp.begin − 20 ms`. Nhờ vậy khi dừng, LR vẫn tô dòng cuối của câu vừa nghe thay vì đã nhảy sang dòng sau.
 - Phương án tự fetch `timedtext` bị loại: YouTube yêu cầu token `pot`, và LR đã làm việc này.
 - Phương án dự phòng đã cài: nạp file `.srt`/`.vtt` do người dùng cung cấp (parser có unit test; chưa thử trên trình duyệt).
 
@@ -72,6 +74,8 @@ Ràng buộc quan trọng rút ra từ source LR:
 | Điều hướng SPA sang video khác | selection/replay reset; 1 toolbar, 1 style |
 | Đang có quảng cáo | LR báo `SUB_LOAD_ERROR`; nút phát lại bị vô hiệu, có thông báo |
 | Caption chứa `\u200B` | trước khi sửa bị nhận nhầm là track không dấu câu; đã sửa `cleanText` và thêm unit test |
+| v1.1.0 — Smart Pause câu 1 dòng (`Whaaat the HECK?!`, cuối cue 7.701 ms, cue sau bắt đầu 7.734 ms) | dừng tại 7.714 ms; LR vẫn tô dòng vừa nghe |
+| v1.1.0 — Smart Pause rồi Shift+R, câu 3 dòng (track tiếng Việt, câu kết thúc 6.534 ms) | dừng 6.614 ms (trước khi giới hạn đệm); Shift+R tua về 0 ms, phát hết 3 dòng rồi dừng; bấm lại lặp đúng câu đó; không tạo vùng chọn |
 
 ## 6. Chưa xác minh
 
