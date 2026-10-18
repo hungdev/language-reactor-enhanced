@@ -1,0 +1,58 @@
+{
+   "action": {
+      "default_title": "Language Reactor"
+   },
+   "background": {
+      "scripts": [ "background.min.js" ],
+      "service_worker": "background.min.js"
+   },
+   "content_scripts": [ {
+      "css": [  ],
+      "js": [ "content_netflix.js" ],
+      "matches": [ "https://*.netflix.com/*" ],
+      "run_at": "document_start"
+   }, {
+      "all_frames": true,
+      "css": [  ],
+      "js": [ "content_youtube.js" ],
+      "matches": [ "*://*.youtube.com/*" ],
+      "run_at": "document_start"
+   }, {
+      "css": [  ],
+      "js": [ "content_amazon.js" ],
+      "matches": [ "*://*.amazon.com.br/*", "*://*.amazon.ca/*", "*://*.amazon.com.mx/*", "*://*.amazon.com/*", "*://*.amazon.cn/*", "*://*.amazon.in/*", "*://*.amazon.co.jp/*", "*://*.amazon.sg/*", "*://*.amazon.ae/*", "*://*.amazon.sa/*", "*://*.amazon.fr/*", "*://*.amazon.de/*", "*://*.amazon.it/*", "*://*.amazon.nl/*", "*://*.amazon.pl/*", "*://*.amazon.es/*", "*://*.amazon.se/*", "*://*.amazon.com.tr/*", "*://*.amazon.co.uk/*", "*://*.amazon.com.au/*" ],
+      "run_at": "document_start"
+   }, {
+      "css": [  ],
+      "js": [ "content_dioco.js" ],
+      "matches": [ "https://*.languagereactor.com/*" ],
+      "run_at": "document_start"
+   } ],
+   "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' https://www.gstatic.com/ https://cdn.firebase.com; connect-src 'self' https://*.firebaseio.com https://api.dioco.io https://www.youtube.com https://www.googleapis.com https://securetoken.googleapis.com https://us-central1-nlle-b0128.cloudfunctions.net https://apis.google.com https://identitytoolkit.googleapis.com https://i.ytimg.com"
+   },
+   "default_locale": "en",
+   "description": "__MSG_appDesc__",
+   "host_permissions": [ "https://i.ytimg.com/*" ],
+   "icons": {
+      "128": "icon128.png",
+      "48": "icon48.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAiczGksjvcUmUv4EsSHNmaJt4AiLifPbi7zCS5PKKnBj4FdDUHOaR2j4PBJynmobjYWOLMSt+iPyNO2w1Zvvc1kIL+aYa4jQAIbWz19TUK4z2wExsIEKXlWLka3G3AVPHD5nTlDA7dLr2wS3d2ptFaz+F1LMKj1f7QuQwpyRAuX49KdcbxFVnmuE9eRarW+cWGIzVLckhuxUUAlVSjy8L7iJ8olsjub/TqEhIcHcDlCHoKwAhp6EW/bI9RcWPORRxzTSydTAng5vYpy34+CsZg6PtUrTnOapB1e6ZEugYMbIPARQOp2DlOsKAKsui/oI7Bql4eK2CQ3K5twb5qf0WwwIDAQAB",
+   "manifest_version": 3,
+   "name": "Language Reactor",
+   "permissions": [ "storage", "contextMenus", "activeTab", "scripting" ],
+   "short_name": "Lang Reactor",
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "5.1.8",
+   "web_accessible_resources": [ {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "images/*.png" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "pageScript_dioco.min.js", "pageScript_lly.min.js", "pageScript_lln.min.js", "pageScript_lla.min.js" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "ui_strings/*.json" ]
+   } ]
+}
