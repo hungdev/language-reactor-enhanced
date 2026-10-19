@@ -2,7 +2,7 @@
 // @name         Language Reactor – Sentence Replay & Smart Auto-Pause
 // @name:vi      Language Reactor – Phát lại câu & Tự dừng thông minh
 // @namespace    https://local.userscripts/lr-sentence-replay
-// @version      1.3.0
+// @version      1.4.0
 // @description  Sentence-level Smart Auto-Pause and multi-line replay/loop for Language Reactor's YouTube transcript panel (built against LR 5.1.8). Does not modify the extension.
 // @description:vi Tự dừng ở cuối câu và chọn nhiều dòng phụ đề trong panel transcript của Language Reactor để phát lại/lặp (LR 5.1.8). Không sửa extension.
 // @match        https://www.youtube.com/*
@@ -413,7 +413,7 @@
   }
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
   const PAGE = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
   try {
     if (PAGE.__LRSR_ACTIVE__) return;
@@ -510,6 +510,7 @@
       lrNotFound: 'Language Reactor not detected. Is the extension enabled on this page?',
       lrInaccessible: 'LR is on the page but its data is not reachable. Make sure Tampermonkey runs this script with @sandbox JavaScript (page context).',
       lrNoData: 'Language Reactor has not initialised subtitles yet.',
+      lrWaiting: 'Language Reactor found; reading its subtitle data… Press play for a moment if this stays.',
       loading: 'Language Reactor is loading subtitles…',
       noSubs: 'This video has no subtitles: no timing is available, replay cannot start.',
       noSubsSelected: 'Choose a subtitle track in Language Reactor first.',
@@ -585,6 +586,7 @@
       lrNotFound: 'Không phát hiện Language Reactor. Extension đã bật trên trang này chưa?',
       lrInaccessible: 'LR có trên trang nhưng không đọc được dữ liệu. Hãy đảm bảo Tampermonkey chạy script với @sandbox JavaScript (page context).',
       lrNoData: 'Language Reactor chưa khởi tạo phụ đề.',
+      lrWaiting: 'Đã thấy Language Reactor; đang đọc dữ liệu phụ đề… Nếu thông báo này không mất, hãy bấm phát video một lúc.',
       loading: 'Language Reactor đang tải phụ đề…',
       noSubs: 'Video không có phụ đề: không có timing nên không thể phát lại.',
       noSubsSelected: 'Hãy chọn một track phụ đề trong Language Reactor trước.',
@@ -648,6 +650,7 @@
     punctuated: true,
     trackKey: null,
     lrDataRef: null,
+    lrDataLen: 0,
     lrStatus: { code: 'INIT' },
     file: null,
     selection: null,
@@ -659,6 +662,7 @@
     ourPauseUntil: 0,
     lastOverrideAt: 0,
     lastLrAutoPause: null,
+    stats: { ticks: 0, lastTickAt: 0, timeupdateEvals: 0, smartPauses: 0, smartOffBySync: 0 },
     raf: 0,
     boundaryTimer: 0,
     maintTimer: 0,
@@ -705,7 +709,7 @@
     return !!(p && (p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting')));
   }
 
-  const VIDEO_EVENTS = ['play', 'playing', 'pause', 'seeking', 'ratechange', 'ended', 'emptied'];
+  const VIDEO_EVENTS = ['play', 'playing', 'pause', 'seeking', 'ratechange', 'ended', 'emptied', 'timeupdate'];
 
   function bindVideo(v) {
     if (v === S.video) return;
@@ -745,6 +749,14 @@
         if (S.replay) finishReplay();
         S.smart.reset();
         break;
+      case 'timeupdate': {
+        const v = S.video;
+        if (!v || v.paused || v.ended || !needsLoop()) break;
+        S.stats.timeupdateEvals++;
+        evaluate(v);
+        ensureLoop();
+        break;
+      }
     }
   }
 
@@ -861,6 +873,8 @@
       return;
     }
     S.raf = requestAnimationFrame(tick);
+    S.stats.ticks++;
+    S.stats.lastTickAt = performance.now();
     evaluate(v);
   }
 
@@ -902,6 +916,7 @@
     if (S.prefs.smartPause && S.groups.length) {
       const res = S.smart.step(S.groups, now + lead, S.prefs.smartTailMs);
       if (res.pause) {
+        S.stats.smartPauses++;
         pauseVideo();
         S.lastSmartPause = { group: res.group, at: now };
         updateUI();
@@ -921,18 +936,97 @@
     }
   }
 
-  function readLr() {
-    const lln = getLln();
-    if (!lln || !lln.subManager) {
-      const uiPresent = !!document.querySelector('.lln-vertical-view, #lln-main-subs, .lln-bottom-panel');
-      return { status: uiPresent ? 'LR_INACCESSIBLE' : 'LR_NOT_FOUND' };
-    }
-    let d;
+  const LR_STATES = new Set(['SUBS_LOADED', 'LOADING', 'SUBS_LOADING', 'NOT_LOADED', 'IN_AD']);
+
+  function isLrSubData(v) {
+    return !!v && typeof v === 'object' && typeof v.state === 'string' && LR_STATES.has(v.state) && ('subtitles' in v || 'reason' in v || 'mm' in v);
+  }
+
+  const MOBX = { atom: null, trapped: false, captures: 0 };
+
+  function mobxGlobals() {
     try {
-      d = lln.subManager.data;
+      const g = PAGE.__mobxGlobals;
+      return g && typeof g === 'object' ? g : null;
     } catch (_) {
-      return { status: 'LR_INACCESSIBLE' };
+      return null;
     }
+  }
+
+  function installMobxProbe() {
+    if (MOBX.atom && isLrSubData(MOBX.atom.value_)) return;
+    MOBX.atom = null;
+    if (MOBX.trapped) return;
+    const g = mobxGlobals();
+    if (!g) return;
+    const desc = Object.getOwnPropertyDescriptor(g, 'trackingDerivation');
+    if (!desc || !('value' in desc) || !desc.configurable) return;
+    let cur = desc.value;
+    const seen = new WeakSet();
+    const restore = () => {
+      Object.defineProperty(g, 'trackingDerivation', { value: cur, writable: true, configurable: true, enumerable: desc.enumerable });
+      MOBX.trapped = false;
+    };
+    const inspect = (d) => {
+      if (!d || typeof d !== 'object' || seen.has(d)) return;
+      seen.add(d);
+      for (const list of [d.newObserving_, d.observing_]) {
+        if (!Array.isArray(list)) continue;
+        for (const a of list) {
+          if (a && typeof a === 'object' && 'value_' in a && isLrSubData(a.value_)) {
+            MOBX.atom = a;
+            MOBX.captures++;
+            restore();
+            return;
+          }
+        }
+      }
+    };
+    Object.defineProperty(g, 'trackingDerivation', {
+      configurable: true,
+      enumerable: desc.enumerable,
+      get() {
+        return cur;
+      },
+      set(v) {
+        const prev = cur;
+        cur = v;
+        if (prev && prev !== v && !MOBX.atom) {
+          try {
+            inspect(prev);
+          } catch (_) {}
+        }
+      },
+    });
+    MOBX.trapped = true;
+  }
+
+  function lrPresent() {
+    try {
+      if (PAGE.__LANGUAGE_REACTOR_EXTENSION__) return true;
+    } catch (_) {}
+    return !!document.querySelector('.lln-vertical-view, #lln-main-subs, .lln-bottom-panel');
+  }
+
+  function readLrData() {
+    const lln = getLln();
+    if (lln && lln.subManager) {
+      try {
+        return { source: 'lln', data: lln.subManager.data };
+      } catch (_) {
+        return { source: 'lln', error: true };
+      }
+    }
+    installMobxProbe();
+    if (MOBX.atom) return { source: 'mobx', data: MOBX.atom.value_ };
+    return { source: null };
+  }
+
+  function readLr() {
+    const src = readLrData();
+    if (src.error) return { status: 'LR_INACCESSIBLE' };
+    if (!src.source) return { status: lrPresent() ? 'LR_WAITING' : 'LR_NOT_FOUND' };
+    const d = src.data;
     if (!d || typeof d !== 'object') return { status: 'LR_NO_DATA' };
     if (d.state === 'SUBS_LOADED' && Array.isArray(d.subtitles)) return { status: 'SUBS_LOADED', data: d };
     return { status: d.state || 'UNKNOWN', reason: d.reason || null };
@@ -957,7 +1051,7 @@
       return;
     }
     const d = r.data;
-    if (!force && d === S.lrDataRef && S.cueSource === 'LR') return;
+    if (!force && d === S.lrDataRef && d.subtitles.length === S.lrDataLen && S.cueSource === 'LR') return;
     const movieId = d.mm && d.mm.movieId;
     if (vid && movieId && movieId !== vid) {
       S.lrStatus = { code: 'STALE' };
@@ -973,6 +1067,7 @@
       return;
     }
     S.lrDataRef = d;
+    S.lrDataLen = d.subtitles.length;
     S.lrStatus = { code: 'OK' };
     const tm = d.tm || {};
     const key = ['LR', movieId || vid || '', tm.vssId || '', tm.langCode_YT || '', tm.langCode_G || '', tm.md5 || '', built.cues.length].join('|');
@@ -1015,6 +1110,8 @@
         return t('lrNotFound');
       case 'LR_INACCESSIBLE':
         return t('lrInaccessible');
+      case 'LR_WAITING':
+        return t('lrWaiting');
       case 'LR_NO_DATA':
         return t('lrNoData');
       case 'LOADING':
@@ -1048,6 +1145,14 @@
   }
 
   function setLrAutoPause(on) {
+    const v = S.video;
+    const wasPaused = !!v && v.paused;
+    if (wasPaused) {
+      const keepPaused = () => {
+        if (S.video === v && !v.paused) pauseVideo();
+      };
+      for (const ms of [0, 60, 200, 400]) setTimeout(keepPaused, ms);
+    }
     const el = document.getElementById('autoPause');
     if (el && el.checked !== on) el.click();
     if (lrAutoPauseEnabled() !== on) {
@@ -1077,6 +1182,7 @@
   function syncPauseModes() {
     const lr = lrAutoPauseEnabled();
     if (lr === true && S.lastLrAutoPause === false && S.prefs.smartPause) {
+      S.stats.smartOffBySync++;
       setSmart(false);
       toast(t('smartOffForLine'));
     }
@@ -1734,6 +1840,15 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
       sandbox: { unsafeWindow: typeof unsafeWindow !== 'undefined', gm: typeof GM_getValue === 'function' },
       lr: {
         windowLln: !!lln,
+        dataSource: lln && lln.subManager ? 'window.lln' : MOBX.atom ? 'mobx' : null,
+        mobx: { globals: !!mobxGlobals(), probeInstalled: MOBX.trapped, captured: !!MOBX.atom, captures: MOBX.captures },
+        extensionFlag: (() => {
+          try {
+            return !!PAGE.__LANGUAGE_REACTOR_EXTENSION__;
+          } catch (_) {
+            return null;
+          }
+        })(),
         llnKeys: lln ? Object.keys(lln) : null,
         status: r.status,
         reason: r.reason || null,
@@ -1754,8 +1869,35 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
         rowCountMatchesCues: c ? rows.length === S.cues.length : null,
       },
       video: v
-        ? { found: true, currentTimeMs: Math.round(v.currentTime * 1000), durationMs: Math.round(v.duration * 1000), rate: v.playbackRate, paused: v.paused, adShowing: isAdShowing(v) }
+        ? {
+            found: true,
+            currentTimeMs: Math.round(v.currentTime * 1000),
+            durationMs: Math.round(v.duration * 1000),
+            rate: v.playbackRate,
+            paused: v.paused,
+            adShowing: isAdShowing(v),
+            connected: v.isConnected,
+            isMoviePlayerVideo: v === document.querySelector('#movie_player video'),
+            videoCount: document.getElementsByTagName('video').length,
+          }
         : { found: false },
+      loop: {
+        rafPending: !!S.raf,
+        needsLoop: needsLoop(),
+        ticks: S.stats.ticks,
+        msSinceLastTick: S.stats.lastTickAt ? Math.round(performance.now() - S.stats.lastTickAt) : null,
+        timeupdateEvals: S.stats.timeupdateEvals,
+        smartPauses: S.stats.smartPauses,
+        smartOffBySync: S.stats.smartOffBySync,
+        visibility: document.visibilityState,
+        hasFocus: document.hasFocus(),
+      },
+      nextGroup: (() => {
+        if (!v || !S.groups.length) return null;
+        const now = v.currentTime * 1000;
+        const gi = Core.findGroupAt(S.groups, now);
+        return S.groups.slice(Math.max(0, gi), gi + 2).map((g) => ({ first: g.first, last: g.last, start: g.start, end: g.end, nextStart: g.nextStart, reason: g.reason }));
+      })(),
       cues: { source: S.cueSource, count: S.cues.length, groups: S.groups.length, punctuated: S.punctuated, trackKey: S.trackKey },
       groupsSample: S.groups.slice(0, 5).map((g) => Object.assign({}, g, { text: S.cues.slice(g.first, g.last + 1).map((x) => x.text).join(' ').slice(0, 120) })),
       selection: S.selection,

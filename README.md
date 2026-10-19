@@ -2,7 +2,7 @@
 
 **English** | [Tiếng Việt](README.vi.md)
 
-A userscript that runs alongside the **Language Reactor (LR) 5.1.8** extension on YouTube, without modifying or repackaging LR. It adds two features:
+A userscript that runs alongside the **Language Reactor (LR)** extension (tested with 5.1.8 and 6.0.0) on YouTube, without modifying or repackaging LR. It adds two features:
 
 1. **Smart Pause**: pauses at the end of a complete sentence (based on subtitle timing) instead of at the end of every subtitle line.
 2. **Multi-line Replay**: select a contiguous range of rows in LR's transcript panel and replay it once or in a loop.
@@ -13,7 +13,7 @@ A userscript that runs alongside the **Language Reactor (LR) 5.1.8** extension o
 2. Open Tampermonkey → *Create a new script* → paste the entire contents of `LanguageReactor_SentenceReplay.user.js` → Save. Alternatively, drag the `.user.js` file into a Chrome window to open Tampermonkey's install page.
 3. Open a `https://www.youtube.com/watch?...` video, enable LR and pick a subtitle track. The **LR Sentence Replay** toolbar appears next to the transcript panel.
 
-The script must run in the *page context* to read LR's subtitle data (`window.lln`). The metadata already declares `@sandbox JavaScript` and `@grant unsafeWindow`. If the toolbar says "LR is on the page but its data is not reachable", open Tampermonkey *Settings* (Config mode: Advanced), find the sandbox/injection option under Security and make sure it is not forced to `DOM` mode; then reload the page.
+The script must run in the *page context* to read LR's subtitle data (`window.lln` on LR 5.x; on LR 6.x, which no longer exposes `window.lln`, the script reads the same data through LR's MobX state, read-only). The metadata already declares `@sandbox JavaScript` and `@grant unsafeWindow`. If the toolbar says "LR is on the page but its data is not reachable", open Tampermonkey *Settings* (Config mode: Advanced), find the sandbox/injection option under Security and make sure it is not forced to `DOM` mode; then reload the page.
 
 ## Usage
 
@@ -49,7 +49,7 @@ During a replay, the *"Ignore LR auto-pause inside a replay"* setting (on by def
 
 ## Known limitations
 
-- The timing source is LR's internal state (`window.lln.subManager.data`), which is not a public API. An LR update may change this structure. The script reports a clear error instead of guessing timing.
+- The timing source is LR's internal state (`window.lln.subManager.data` on 5.x, the same object reached through MobX on 6.x), which is not a public API. LR 6.0.0 already removed `window.lln`; a future update may change things again. The script reports a clear error instead of guessing timing.
 - Smart Pause is a punctuation-based heuristic. A cue containing several sentences (e.g. `"Yes. I think"`) cannot be paused mid-cue because there is no word-level timing; the script pauses at the end of the next sentence that ends on a cue boundary.
 - Auto-generated (ASR) subtitles have no punctuation: the script falls back to splitting on silence gaps (≥ 800 ms) and a maximum sentence length (8 s).
 - With a fallback `.srt`/`.vtt` file loaded, only Smart Pause and "Replay sentence" are available. Selecting rows in the panel requires LR's subtitles (row indices map 1:1 to LR's subtitle array).

@@ -2,7 +2,7 @@
 
 [English](README.md) | **Tiếng Việt**
 
-Userscript chạy song song với extension **Language Reactor (LR) 5.1.8** trên YouTube, không sửa hay đóng gói lại LR. Script thêm hai tính năng:
+Userscript chạy song song với extension **Language Reactor (LR)** trên YouTube (đã thử với 5.1.8 và 6.0.0), không sửa hay đóng gói lại LR. Script thêm hai tính năng:
 
 1. **Smart Pause (Tự dừng câu)**: dừng ở cuối một câu hoàn chỉnh (theo timing phụ đề), thay vì dừng ở cuối mỗi dòng phụ đề.
 2. **Multi-line Replay**: chọn một khoảng dòng liên tục trong panel transcript bên phải của LR, phát lại một lần hoặc lặp.
@@ -13,7 +13,7 @@ Userscript chạy song song với extension **Language Reactor (LR) 5.1.8** trê
 2. Mở Tampermonkey → *Create a new script* → dán toàn bộ nội dung `LanguageReactor_SentenceReplay.user.js` → Save. Cách khác: kéo thả file `.user.js` vào cửa sổ Chrome để Tampermonkey hiện trang cài đặt.
 3. Mở một video `https://www.youtube.com/watch?...`, bật LR và chọn một track phụ đề. Thanh công cụ **LR Sentence Replay** sẽ hiện cạnh panel transcript.
 
-Script cần chạy trong *page context* để đọc dữ liệu phụ đề của LR (`window.lln`). Metadata đã khai báo `@sandbox JavaScript` và `@grant unsafeWindow`. Nếu thanh công cụ báo "LR có trên trang nhưng không đọc được dữ liệu", mở Tampermonkey *Settings* (Config mode: Advanced), tìm mục sandbox/injection ở phần Security và đảm bảo nó không bị ép về chế độ `DOM`; sau đó tải lại trang.
+Script cần chạy trong *page context* để đọc dữ liệu phụ đề của LR (`window.lln` trên LR 5.x; LR 6.x không còn `window.lln`, script đọc cùng dữ liệu đó qua state MobX của LR, chỉ đọc, không sửa). Metadata đã khai báo `@sandbox JavaScript` và `@grant unsafeWindow`. Nếu thanh công cụ báo "LR có trên trang nhưng không đọc được dữ liệu", mở Tampermonkey *Settings* (Config mode: Advanced), tìm mục sandbox/injection ở phần Security và đảm bảo nó không bị ép về chế độ `DOM`; sau đó tải lại trang.
 
 ## Sử dụng
 
@@ -49,7 +49,7 @@ Trong lúc Replay, tùy chọn *"Bỏ qua auto-pause của LR trong lúc phát l
 
 ## Giới hạn đã biết
 
-- Nguồn timing là state nội bộ của LR (`window.lln.subManager.data`), vốn không phải API công khai. Một bản cập nhật LR có thể đổi cấu trúc này. Script sẽ báo rõ lỗi chứ không tự đoán timing.
+- Nguồn timing là state nội bộ của LR (`window.lln.subManager.data` trên 5.x, cùng object đó lấy qua MobX trên 6.x), vốn không phải API công khai. LR 6.0.0 đã bỏ `window.lln`; bản cập nhật sau có thể lại thay đổi. Script sẽ báo rõ lỗi chứ không tự đoán timing.
 - Smart Pause là heuristic dựa trên dấu câu. Một cue chứa nhiều câu (ví dụ `"Yes. I think"`) không thể dừng giữa cue vì không có timing theo từ; script sẽ dừng ở cuối câu kết thúc sau đó.
 - Phụ đề tự động (ASR) không có dấu câu: script chuyển sang chia theo khoảng lặng (≥ 800 ms) và giới hạn độ dài câu (8 s).
 - Khi nạp file `.srt`/`.vtt` dự phòng, chỉ dùng được Smart Pause và "Phát lại câu". Chọn dòng trong panel cần phụ đề của LR (chỉ số dòng ánh xạ 1-1 với mảng phụ đề LR).

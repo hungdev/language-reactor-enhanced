@@ -2,6 +2,19 @@
 
 Phương pháp: đọc tĩnh `5.1.8_0.zip` (manifest, `content_youtube.js`, `pageScript_lly.min.js`), sau đó xác minh runtime trên **Chrome for Testing 156** có nạp bản giải nén của LR 5.1.8 (profile tạm, chưa đăng nhập), với 3 video: `jNQXAC9IVRw` (6 cue), `iG9CE55wbtY` (TED, 427 cue có dấu câu), `RE3_PGwDwhw` (3224 cue, caption kiểu karaoke có ký tự zero-width). Userscript được nạp qua Chrome DevTools Protocol `Runtime.evaluate` ở page context, tương đương `@sandbox JavaScript` của Tampermonkey. **Chưa chạy thử qua Tampermonkey thật** (xem cuối báo cáo).
 
+## 0. Language Reactor 6.0.0 (cập nhật)
+
+LR tự cập nhật lên 6.0.0 và Smart Pause ngừng hoạt động. Nguyên nhân (đọc tĩnh `6.0.0_0.zip` rồi chạy thật bản giải nén):
+
+- `pageScript_lly.min.js` vẫn có đoạn gán `window.lln = {…}` nhưng bị khoá bằng `!1&&(window.lln=…)`, nên **`window.lln` không còn tồn tại**. `window.__LANGUAGE_REACTOR_EXTENSION__`, `window.__mobxGlobals` và `window.diocoFetch` vẫn có.
+- State của LR 6 dùng MobX (bản production, không có spy). `subMan` là singleton `new VB`, vẫn có `.data` với cấu trúc như 5.1.8 (`state`, `reason`, `mm.movieId`, `tm`, `subtitles[{begin,end,text}]`), thêm trạng thái `SUBS_LOADING`.
+- Cách đọc mới, chỉ đọc: script tạm bọc thuộc tính `__mobxGlobals.trackingDerivation` bằng getter/setter. Khi LR chạy một reaction có đọc `subMan.data`, script lấy observable tương ứng từ `observing_`/`newObserving_` của reaction đó, rồi trả thuộc tính về như cũ. Sau đó `atom.value_` luôn là `subMan.data` hiện tại, kể cả khi điều hướng SPA (đã thấy chuyển sang `IN_AD` ở video kế tiếp). Runtime: bắt được ngay cả khi video đang dừng.
+- DOM của panel không đổi: `#lln-vertical-view-subs.absolute > .lln-vertical-view-sub[data-index].in-scroll`, `.lln-sub-play-btn`, `.lln-sub-text`; số dòng bằng số cue (109/109); text dòng trùng `subtitles[i].text`. Khi đang quảng cáo, container chỉ có `.lln-vv-center-msg`.
+- Không còn `setMan`: auto-pause được đọc/ghi qua checkbox `#autoPause`. Trong LR 6, tắt auto-pause sẽ gọi `play()`; script giữ video ở trạng thái dừng nếu trước đó đang dừng.
+- Phím tắt của LR không đổi (A, S, D, W, E, R, Q, 1, 2, Space, mũi tên); Z vẫn trống.
+
+Kết quả runtime trên LR 6.0.0 (video `BC3k4uI8lb0`, track tiếng Anh): Smart Pause dừng ở 39.804 / 42.740 / 45.369 ms; Z phát lại cả câu rồi dừng; Line Pause ↔ Smart Pause loại trừ nhau và video không tự phát khi chuyển chế độ; chọn dòng 20–22 bằng checkbox + Shift-click, Replay Selected chạy 38.013 → 42.737 ms.
+
 ## 1. LR chạy ở đâu
 
 | Mục | Kết quả | Bằng chứng |
