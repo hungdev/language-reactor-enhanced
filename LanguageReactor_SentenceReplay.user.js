@@ -2,16 +2,25 @@
 // @name         Language Reactor – Sentence Replay & Smart Auto-Pause
 // @name:vi      Language Reactor – Phát lại câu & Tự dừng thông minh
 // @namespace    https://local.userscripts/lr-sentence-replay
-// @version      1.4.0
-// @description  Sentence-level Smart Auto-Pause and multi-line replay/loop for Language Reactor's YouTube transcript panel (built against LR 5.1.8). Does not modify the extension.
-// @description:vi Tự dừng ở cuối câu và chọn nhiều dòng phụ đề trong panel transcript của Language Reactor để phát lại/lặp (LR 5.1.8). Không sửa extension.
+// @version      1.5.0
+// @description  Sentence-level Smart Auto-Pause, multi-line replay/loop and Cambridge IPA + UK/US audio in the word dictionary for Language Reactor on YouTube (LR 5.1.8 / 6.0.0). Does not modify the extension.
+// @description:vi Tự dừng ở cuối câu, chọn nhiều dòng phụ đề để phát lại/lặp, và thêm phiên âm IPA + phát âm UK/US của Cambridge khi tra từ trong Language Reactor (LR 5.1.8 / 6.0.0). Không sửa extension.
 // @match        https://www.youtube.com/*
+// @match        https://dictionary.cambridge.org/*
 // @run-at       document-idle
 // @noframes
 // @sandbox      JavaScript
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
+// @grant        GM_openInTab
+// @grant        GM_addValueChangeListener
+// @grant        GM_removeValueChangeListener
+// @grant        GM_cookie
 // @grant        unsafeWindow
+// @connect      dictionary.cambridge.org
+// @connect      api.dictionaryapi.dev
+// @connect      translate.google.com
 // ==/UserScript==
 
 (function () {
@@ -382,6 +391,147 @@
       return cues.map((c, i) => ({ idx: i, begin: c.begin, end: c.end, text: c.text }));
     }
 
+    const LOOKUP_WORD_RE = /^[a-z]+(?:['-][a-z]+)*(?: [a-z]+(?:['-][a-z]+)*){0,3}$/;
+
+    function normalizeLookupWord(text) {
+      const w = cleanText(text)
+        .toLowerCase()
+        .replace(/[‘’ʼ`]/g, "'")
+        .replace(/^[^a-z]+|[^a-z]+$/g, '');
+      return LOOKUP_WORD_RE.test(w) ? w : null;
+    }
+
+    function cambridgeUrl(word) {
+      return 'https://dictionary.cambridge.org/dictionary/english/' + encodeURIComponent(word.replace(/ /g, '-'));
+    }
+
+    function decodeEntities(s) {
+      return String(s)
+        .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+        .replace(/&quot;/g, '"')
+        .replace(/&(?:#39|apos);/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&');
+    }
+
+    function cleanIpa(s) {
+      return cleanText(decodeEntities(String(s || '').replace(/<[^>]+>/g, ''))).replace(/^[/\[\s]+|[/\]\s]+$/g, '');
+    }
+
+    const CAMB_IPA_RE = /<span class="ipa[^"]*">((?:[^<]+|<span[^>]*>[^<]*<\/span>)*)<\/span>/;
+    const CAMB_MP3_RE = /<source\b[^>]*\bsrc="([^"]+\.mp3)"/;
+
+    function cambridgeAbs(u) {
+      if (/^https?:\/\//.test(u)) return u;
+      return 'https://dictionary.cambridge.org' + (u.startsWith('/') ? '' : '/') + u;
+    }
+
+    function cambridgePron(block, region) {
+      const m = new RegExp('class="' + region + ' dpron-i[^"]*"').exec(block);
+      if (!m) return null;
+      let rest = block.slice(m.index + m[0].length);
+      const next = rest.search(/class="(?:uk|us) dpron-i/);
+      if (next >= 0) rest = rest.slice(0, next);
+      const ipa = CAMB_IPA_RE.exec(rest);
+      const audio = CAMB_MP3_RE.exec(rest);
+      if (!ipa && !audio) return null;
+      return { ipa: ipa ? cleanIpa(ipa[1]) || null : null, audio: audio ? cambridgeAbs(decodeEntities(audio[1])) : null };
+    }
+
+    function mergePronEntries(list, limit) {
+      const out = [];
+      const same = (a, b) => !a || !b || !a.ipa || !b.ipa || a.ipa === b.ipa;
+      for (const x of list) {
+        if (!x.uk && !x.us) continue;
+        const hit = out.find((e) => same(e.uk, x.uk) && same(e.us, x.us));
+        if (hit) {
+          if (!hit.uk || (!hit.uk.ipa && x.uk && x.uk.ipa)) hit.uk = x.uk || hit.uk;
+          if (!hit.us || (!hit.us.ipa && x.us && x.us.ipa)) hit.us = x.us || hit.us;
+          for (const p of x.pos) if (!hit.pos.includes(p)) hit.pos.push(p);
+        } else if (out.length < limit) {
+          out.push({ hw: x.hw, pos: x.pos.slice(), uk: x.uk, us: x.us });
+        }
+      }
+      return out;
+    }
+
+    function parseCambridgeHtml(html) {
+      const src = String(html || '');
+      const blocked = /<title>\s*Just a moment|challenge-platform|cf-chl-/i.test(src);
+      const raw = [];
+      const sections = src.split(/class="pr dictionary"/);
+      const main = sections.length > 1 ? sections.slice(1).find((s) => s.includes('dpos-h')) || sections[1] : src;
+      const parts = main.split(/class="pos-header dpos-h[^"]*"/);
+      for (let i = 1; i < parts.length; i++) {
+        let block = parts[i];
+        const end = block.search(/class="pos-body|class="sense-body|class="def-block/);
+        if (end >= 0) block = block.slice(0, end);
+        const pos = /<span class="pos dpos"[^>]*>([^<]+)<\/span>/.exec(block);
+        const hw = /<span class="hw dhw">([^<]+)<\/span>/.exec(block);
+        raw.push({
+          hw: hw ? cleanText(decodeEntities(hw[1])) : null,
+          pos: pos ? [cleanText(decodeEntities(pos[1]))] : [],
+          uk: cambridgePron(block, 'uk'),
+          us: cambridgePron(block, 'us'),
+        });
+      }
+      if (!raw.length && !blocked) raw.push({ hw: null, pos: [], uk: cambridgePron(src, 'uk'), us: cambridgePron(src, 'us') });
+      return { blocked, entries: mergePronEntries(raw, 4) };
+    }
+
+    function parseFreeDictJson(data) {
+      if (!Array.isArray(data) || !data.length) return [];
+      let anyIpa = null;
+      const pick = (re) => {
+        for (const e of data) {
+          for (const p of (e && e.phonetics) || []) {
+            if (p && p.text && !anyIpa) anyIpa = cleanIpa(p.text);
+            if (p && p.audio && re.test(p.audio)) return { ipa: cleanIpa(p.text || e.phonetic || '') || null, audio: p.audio };
+          }
+          if (e && e.phonetic && !anyIpa) anyIpa = cleanIpa(e.phonetic);
+        }
+        return null;
+      };
+      let uk = pick(/-uk\.mp3$/i);
+      let us = pick(/-us\.mp3$/i);
+      if (!uk && !us && anyIpa) us = { ipa: anyIpa, audio: null };
+      if (uk && !uk.ipa) uk.ipa = anyIpa;
+      if (us && !us.ipa) us.ipa = anyIpa;
+      if (!uk && !us) return [];
+      const pos = [];
+      for (const e of data) for (const m of (e && e.meanings) || []) if (m && m.partOfSpeech && !pos.includes(m.partOfSpeech)) pos.push(m.partOfSpeech);
+      return [{ hw: data[0] && data[0].word ? String(data[0].word) : null, pos, uk, us }];
+    }
+
+    function ipaSyllables(ipa) {
+      const out = [];
+      let cur = null;
+      const push = () => {
+        if (cur && cur.text) out.push(cur);
+        cur = null;
+      };
+      for (const ch of String(ipa || '')) {
+        if (ch === '.' || ch === '‧' || ch === '·') {
+          push();
+        } else if (ch === 'ˈ' || ch === 'ˌ' || ch === "'") {
+          push();
+          cur = { text: '', stress: ch === 'ˌ' ? 2 : 1 };
+        } else if (ch === ' ') {
+          push();
+          if (out.length && !out[out.length - 1].space) out.push({ text: ' ', stress: 0, space: true });
+        } else {
+          if (!cur) cur = { text: '', stress: 0 };
+          cur.text += ch;
+        }
+      }
+      push();
+      while (out.length && out[out.length - 1].space) out.pop();
+      return out;
+    }
+
     return {
       cleanText,
       stripClosers,
@@ -403,6 +553,11 @@
       normalizeCues,
       parseTimestamp,
       parseSubtitleFile,
+      normalizeLookupWord,
+      cambridgeUrl,
+      parseCambridgeHtml,
+      parseFreeDictJson,
+      ipaSyllables,
       DEFAULT_GROUP_OPTS,
     };
   })();
@@ -413,7 +568,7 @@
   }
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   const PAGE = typeof unsafeWindow !== 'undefined' && unsafeWindow ? unsafeWindow : window;
   try {
     if (PAGE.__LRSR_ACTIVE__) return;
@@ -461,6 +616,9 @@
     lang: 'auto',
     collapsed: false,
     toolbarPos: null,
+    pron: true,
+    pronAccent: 'us',
+    pronAutoPlay: false,
   };
 
   function loadPrefs() {
@@ -548,6 +706,26 @@
       diagCopied: 'Diagnostics copied to clipboard (also printed to console).',
       diagConsole: 'Diagnostics printed to console (clipboard unavailable).',
       autoLang: 'Auto',
+      sPron: 'IPA + Cambridge audio in the LR dictionary',
+      sPronAccent: 'Preferred accent',
+      sPronAuto: 'Auto-play pronunciation when a word opens',
+      pronStressTip: 'IPA ({a}). Highlighted syllable = primary stress (ˈ), dotted = secondary stress (ˌ). Click to listen.',
+      pronPlay: 'Play the Cambridge {a} pronunciation',
+      pronNoAudio: 'No Cambridge {a} audio for this word: plays another source (not Cambridge)',
+      pronSrcCambridge: 'Cambridge',
+      pronSrcFree: 'dictionaryapi.dev',
+      pronSrcTip: 'Open this word in Cambridge Dictionary',
+      pronSrcFreeTip: 'Cambridge has no entry for this word; IPA/audio from dictionaryapi.dev',
+      pronConnect: 'Connect Cambridge',
+      pronBlockedPlay: 'Play {a} (other source: Cambridge is blocked — use “Connect Cambridge” for the Cambridge voice)',
+      pronCambridgeAudioFail: 'Cambridge audio was blocked, so another voice was played. Click “Connect Cambridge” once to use the Cambridge voice.',
+      pronConnectTip: 'Cambridge (Cloudflare) needs a one-time browser check. Click to open Cambridge in a background tab; once the check passes the tab closes itself and IPA/audio load directly from YouTube.',
+      pronConnecting: 'Opening a Cambridge tab in the background… (if it shows a “Verify you are human” check, complete it there)',
+      pronConnected: 'Cambridge connected: using Cambridge pronunciation.',
+      pronConnectFail: 'Could not reach Cambridge. Open dictionary.cambridge.org in a tab, pass the check if asked, then try again.',
+      bridgeNote: 'LR Sentence Replay: this tab now provides Cambridge IPA & audio to YouTube. Keep it open (pin it if you like) and go back to YouTube.',
+      pronNone: 'No IPA found for this word',
+      pronAudioFail: 'Could not play the pronunciation audio.',
     },
     vi: {
       title: 'LR Phát lại câu',
@@ -624,6 +802,26 @@
       diagCopied: 'Đã sao chép chẩn đoán (cũng in ra console).',
       diagConsole: 'Đã in chẩn đoán ra console (không truy cập được clipboard).',
       autoLang: 'Tự động',
+      sPron: 'Phiên âm IPA + phát âm Cambridge trong từ điển LR',
+      sPronAccent: 'Giọng ưu tiên',
+      sPronAuto: 'Tự phát âm khi mở một từ',
+      pronStressTip: 'Phiên âm IPA ({a}). Âm tiết được tô sáng = trọng âm chính (ˈ), gạch chấm = trọng âm phụ (ˌ). Bấm để nghe.',
+      pronPlay: 'Nghe phát âm {a} của Cambridge',
+      pronNoAudio: 'Cambridge không có audio {a} cho từ này: phát từ nguồn khác (không phải Cambridge)',
+      pronSrcCambridge: 'Cambridge',
+      pronSrcFree: 'dictionaryapi.dev',
+      pronSrcTip: 'Mở từ này trên Cambridge Dictionary',
+      pronSrcFreeTip: 'Cambridge không có từ này; phiên âm/audio lấy từ dictionaryapi.dev',
+      pronConnect: 'Kết nối Cambridge',
+      pronBlockedPlay: 'Phát {a} (nguồn khác vì Cambridge đang chặn — bấm “Kết nối Cambridge” để dùng giọng Cambridge)',
+      pronCambridgeAudioFail: 'Audio Cambridge bị chặn nên đã phát giọng khác. Bấm “Kết nối Cambridge” 1 lần để dùng giọng Cambridge.',
+      pronConnectTip: 'Cambridge (Cloudflare) cần xác minh trình duyệt 1 lần. Bấm để mở Cambridge trong tab nền; khi xác minh xong tab tự đóng và từ đó phiên âm/audio tải trực tiếp từ YouTube.',
+      pronConnecting: 'Đang mở tab Cambridge chạy nền… (nếu tab đó hiện “Verify you are human”, hãy xác minh ở đó)',
+      pronConnected: 'Đã kết nối Cambridge: đang dùng phát âm Cambridge.',
+      pronConnectFail: 'Chưa kết nối được Cambridge. Mở dictionary.cambridge.org trong một tab, xác minh nếu được hỏi, rồi thử lại.',
+      bridgeNote: 'LR Sentence Replay: tab này đang cung cấp phiên âm & audio Cambridge cho YouTube. Hãy giữ tab mở (có thể ghim) và quay lại YouTube.',
+      pronNone: 'Không tìm thấy phiên âm cho từ này',
+      pronAudioFail: 'Không phát được audio phát âm.',
     },
   };
 
@@ -1480,6 +1678,622 @@
     }
   }
 
+  // -------------------------------------------------------- pronunciation
+
+  const PR = { connect: 0, cache: new Map(), observer: null, observed: new WeakSet(), scheduled: 0, ctx: null, buffers: new Map(), source: null, playingBtn: null };
+  const PRON_CACHE_MAX = 400;
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function gmGet(url, binary, headers, extra) {
+    return new Promise((resolve, reject) => {
+      if (typeof GM_xmlhttpRequest !== 'function') {
+        fetch(url, { credentials: 'omit' })
+          .then((r) => (binary ? r.arrayBuffer() : r.text()).then((body) => resolve({ status: r.status, body, finalUrl: r.url })))
+          .catch(reject);
+        return;
+      }
+      const req = {
+        method: 'GET',
+        url,
+        timeout: 12000,
+        onload: (r) => resolve({ status: r.status, body: binary ? r.response : r.responseText, finalUrl: r.finalUrl || url }),
+        onerror: () => reject(new Error('NETWORK')),
+        ontimeout: () => reject(new Error('TIMEOUT')),
+      };
+      if (binary) req.responseType = 'arraybuffer';
+      req.headers = headers || (binary ? { Accept: 'audio/mpeg,audio/*;q=0.9,*/*;q=0.8' } : { Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8' });
+      if (extra) Object.assign(req, extra);
+      GM_xmlhttpRequest(req);
+    });
+  }
+
+  const BRIDGE = { req: 'lrsr_bridge_req', res: 'lrsr_bridge_res', alive: 'lrsr_bridge_alive', chain: Promise.resolve() };
+  const BRIDGE_ALIVE_MS = 90000;
+  const CAMB_AUDIO_HEADERS = { Accept: 'audio/mpeg,audio/*;q=0.9,*/*;q=0.8', Referer: 'https://dictionary.cambridge.org/' };
+
+  function bufToB64(buf) {
+    const bytes = new Uint8Array(buf);
+    let str = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) str += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(str);
+  }
+
+  function b64ToBuf(b64) {
+    const str = atob(b64);
+    const out = new Uint8Array(str.length);
+    for (let i = 0; i < str.length; i++) out[i] = str.charCodeAt(i);
+    return out.buffer;
+  }
+
+  function hasBridgeApi() {
+    return typeof GM_addValueChangeListener === 'function' && typeof GM_setValue === 'function' && typeof GM_getValue === 'function';
+  }
+
+  function bridgeAlive() {
+    if (!hasBridgeApi()) return false;
+    return Date.now() - (Number(GM_getValue(BRIDGE.alive, 0)) || 0) < BRIDGE_ALIVE_MS;
+  }
+
+  function bridgeGet(url, binary) {
+    const run = () =>
+      new Promise((resolve, reject) => {
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+        let lid = null;
+        const timer = setTimeout(() => {
+          done();
+          reject(new Error('BRIDGE_TIMEOUT'));
+        }, 15000);
+        const done = () => {
+          clearTimeout(timer);
+          if (lid != null) GM_removeValueChangeListener(lid);
+        };
+        lid = GM_addValueChangeListener(BRIDGE.res, (name, oldV, v) => {
+          if (!v || v.id !== id) return;
+          done();
+          if (v.error) return reject(new Error(v.error));
+          resolve({ status: v.status, body: binary ? (v.b64 ? b64ToBuf(v.b64) : null) : v.text, finalUrl: url, via: 'bridge' });
+        });
+        GM_setValue(BRIDGE.req, { id, url, binary: !!binary, at: Date.now() });
+      });
+    const p = BRIDGE.chain.then(run, run);
+    BRIDGE.chain = p.catch(() => {});
+    return p;
+  }
+
+  function cambridgeBlocked(res, binary) {
+    if (!res || res.status === 403 || res.status === 429 || res.status === 503) return true;
+    return !binary && /<title>\s*Just a moment|challenge-platform|cf-chl-/i.test(String(res.body || ''));
+  }
+
+  const CAMB_PARTITION = { topLevelSite: 'https://cambridge.org' };
+  const CF = { value: null, at: 0 };
+
+  function listCookie(details) {
+    return new Promise((resolve) => {
+      try {
+        GM_cookie.list(details, (cookies, err) => {
+          const c = !err && Array.isArray(cookies) ? cookies.find((x) => x && x.name === 'cf_clearance') : null;
+          resolve(c ? c.value : null);
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
+  async function cfClearance(force) {
+    if (!force && Date.now() - CF.at < 60000) return CF.value;
+    CF.at = Date.now();
+    if (typeof GM_cookie === 'undefined' || !GM_cookie || typeof GM_cookie.list !== 'function') return (CF.value = null);
+    const base = { url: 'https://dictionary.cambridge.org/', name: 'cf_clearance' };
+    CF.value = (await listCookie(Object.assign({ partitionKey: CAMB_PARTITION }, base))) || (await listCookie(base));
+    return CF.value;
+  }
+
+  async function cambridgeDirect(url, binary, force) {
+    const cf = await cfClearance(force);
+    const extra = { cookiePartition: CAMB_PARTITION };
+    if (cf) extra.cookie = 'cf_clearance=' + cf;
+    return gmGet(url, binary, binary ? CAMB_AUDIO_HEADERS : undefined, extra);
+  }
+
+  async function cambridgeGet(url, binary) {
+    let res = null;
+    for (const force of [false, true]) {
+      try {
+        res = await cambridgeDirect(url, binary, force);
+      } catch (e) {
+        log('cambridge direct failed', url, e && e.message);
+      }
+      if (!cambridgeBlocked(res, binary)) return res;
+      if (!CF.value) break;
+    }
+    log('cambridge direct blocked', url, res && res.status, CF.value ? 'cf_clearance sent' : 'no cf_clearance');
+    if (bridgeAlive()) {
+      try {
+        return await bridgeGet(url, binary);
+      } catch (e) {
+        log('cambridge bridge failed', url, e && e.message);
+      }
+    }
+    return res || { status: 0, body: binary ? null : '', finalUrl: url };
+  }
+
+  function runCambridgeBridge() {
+    if (!hasBridgeApi()) return;
+    const challenged = () => /just a moment/i.test(document.title) || !!document.querySelector('#challenge-form, #challenge-running, #cf-challenge-running, .cf-turnstile');
+    const beat = () => {
+      if (!challenged()) GM_setValue(BRIDGE.alive, Date.now());
+    };
+    beat();
+    setInterval(beat, 5000);
+    document.addEventListener('visibilitychange', beat);
+    window.addEventListener('pagehide', () => {
+      if (Date.now() - (Number(GM_getValue(BRIDGE.alive, 0)) || 0) < 6000) GM_setValue(BRIDGE.alive, 0);
+    });
+    GM_addValueChangeListener(BRIDGE.req, async (name, oldV, req, remote) => {
+      if (!remote || !req || !req.id || challenged()) return;
+      let out;
+      try {
+        const u = new URL(req.url, location.href);
+        if (u.origin !== location.origin) throw new Error('ORIGIN');
+        const r = await fetch(u.href, { credentials: 'include' });
+        out = { id: req.id, status: r.status };
+        if (req.binary) out.b64 = r.ok ? bufToB64(await r.arrayBuffer()) : null;
+        else out.text = await r.text();
+      } catch (e) {
+        out = { id: req.id, error: String((e && e.message) || e) };
+      }
+      GM_setValue(BRIDGE.res, out);
+    });
+    if (Date.now() - (Number(GM_getValue('lrsr_bridge_wanted', 0)) || 0) < 600000 && !challenged()) {
+      GM_setValue('lrsr_bridge_wanted', 0);
+      const note = el('div', {
+        id: 'lrsr-bridge-note',
+        text: t('bridgeNote'),
+        style:
+          'position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:340px;padding:10px 14px;border-radius:10px;background:#16161c;color:#eee;font:13px/1.4 Roboto,Arial,sans-serif;border:1px solid #f5a623;box-shadow:0 6px 24px rgba(0,0,0,.35);cursor:pointer',
+        onclick: () => note.remove(),
+      });
+      document.body.appendChild(note);
+      setTimeout(() => note.remove(), 15000);
+    }
+    log('Cambridge bridge ready');
+  }
+
+  async function fetchPron(word) {
+    const url = Core.cambridgeUrl(word);
+    let blocked = false;
+    try {
+      const res = await cambridgeGet(url, false);
+      const parsed = Core.parseCambridgeHtml(res.body);
+      blocked = parsed.blocked;
+      const entries = word.includes(' ') ? parsed.entries.filter((e) => e.hw && Core.normalizeLookupWord(e.hw) === word) : parsed.entries;
+      if (res.status === 200 && entries.length) return { source: 'cambridge', url, entries, blocked: false };
+      if (word.includes(' ')) return { source: null, url, entries: [], blocked };
+    } catch (_) {}
+    try {
+      const res = await gmGet('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word), false);
+      if (res.status === 200) {
+        const entries = Core.parseFreeDictJson(JSON.parse(res.body));
+        if (entries.length) return { source: 'free', url, entries, blocked };
+      }
+    } catch (_) {}
+    return { source: null, url, entries: [], blocked };
+  }
+
+  function lookupPron(word) {
+    let p = PR.cache.get(word);
+    if (p) return p;
+    p = fetchPron(word).then((r) => {
+      if (r.blocked || !r.entries.length) setTimeout(() => PR.cache.get(word) === p && PR.cache.delete(word), 20000);
+      return r;
+    });
+    PR.cache.set(word, p);
+    if (PR.cache.size > PRON_CACHE_MAX) PR.cache.delete(PR.cache.keys().next().value);
+    return p;
+  }
+
+  function audioCtx() {
+    if (!PR.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try {
+        PR.ctx = new AC();
+      } catch (_) {
+        return null;
+      }
+    }
+    if (PR.ctx.state === 'suspended') PR.ctx.resume().catch(() => {});
+    return PR.ctx;
+  }
+
+  function setPlayingBtn(btn) {
+    if (PR.playingBtn) PR.playingBtn.classList.remove('lrsr-playing');
+    PR.playingBtn = btn || null;
+    if (btn) btn.classList.add('lrsr-playing');
+  }
+
+  async function decodePron(url) {
+    let buf = PR.buffers.get(url);
+    if (buf) return buf;
+    const ctx = audioCtx();
+    if (!ctx) throw new Error('NO_AUDIO_CONTEXT');
+    const res = /^https:\/\/dictionary\.cambridge\.org\//.test(url) ? await cambridgeGet(url, true) : await gmGet(url, true);
+    if (res.status !== 200 || !res.body || !res.body.byteLength) throw new Error('HTTP ' + res.status);
+    buf = await new Promise((ok, bad) => ctx.decodeAudioData(res.body, ok, bad));
+    PR.buffers.set(url, buf);
+    if (PR.buffers.size > 60) PR.buffers.delete(PR.buffers.keys().next().value);
+    return buf;
+  }
+
+  function ttsUrl(word, accent) {
+    return 'https://translate.google.com/translate_tts?ie=UTF-8&client=gtx&tl=' + (accent === 'uk' ? 'en-GB' : 'en-US') + '&q=' + encodeURIComponent(word);
+  }
+
+  function startBuffer(buf) {
+    const ctx = audioCtx();
+    if (PR.source) {
+      try {
+        PR.source.stop();
+      } catch (_) {}
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.onended = () => {
+      if (PR.source === src) {
+        PR.source = null;
+        setPlayingBtn(null);
+      }
+    };
+    PR.source = src;
+    src.start();
+  }
+
+  async function playUrl(u) {
+    try {
+      startBuffer(await decodePron(u));
+      return true;
+    } catch (e) {
+      log('audio via GM failed', u, e && e.message);
+    }
+    try {
+      const a = new Audio(u);
+      a.onended = () => setPlayingBtn(null);
+      await a.play();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function playPron(urls, btn) {
+    const list = urls.filter(Boolean);
+    if (!list.length) return null;
+    audioCtx();
+    setPlayingBtn(btn);
+    for (const u of list) if (await playUrl(u)) return u;
+    setPlayingBtn(null);
+    toast(t('pronAudioFail'));
+    return null;
+  }
+
+  function openTab(url, active) {
+    try {
+      if (typeof GM_openInTab === 'function') return GM_openInTab(url, { active: !!active, insert: true, setParent: true });
+    } catch (_) {}
+    try {
+      return window.open(url, '_blank');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function connectCambridge(word) {
+    const url = Core.cambridgeUrl(word || 'hello');
+    if (PR.connect) {
+      openTab(url, true);
+      return;
+    }
+    if (hasBridgeApi()) GM_setValue('lrsr_bridge_wanted', Date.now());
+    const tab = openTab(url, false);
+    toast(t('pronConnecting'));
+    const started = Date.now();
+    let busy = false;
+    const finish = (ok, direct) => {
+      clearInterval(PR.connect);
+      PR.connect = 0;
+      if (!ok) return toast(t('pronConnectFail'));
+      if (direct) {
+        try {
+          if (tab && typeof tab.close === 'function') tab.close();
+        } catch (_) {}
+      }
+      PR.cache.clear();
+      refreshPronAll();
+      toast(t('pronConnected'));
+    };
+    PR.connect = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const res = await cambridgeGet(url, false);
+        if (res.status === 200 && !Core.parseCambridgeHtml(res.body).blocked) finish(true, res.via !== 'bridge');
+        else if (Date.now() - started > 180000) finish(false);
+      } catch (_) {
+        if (Date.now() - started > 180000) finish(false);
+      } finally {
+        busy = false;
+      }
+    }, 2500);
+  }
+
+  function pronLangOk() {
+    const tm = S.lrDataRef && S.lrDataRef.tm;
+    const lc = tm && (tm.langCode_G || tm.langCode_YT);
+    return !lc || /^en/i.test(String(lc));
+  }
+
+  function svgSpeaker() {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'lrsr-spk');
+    const body = document.createElementNS(SVG_NS, 'path');
+    body.setAttribute('d', 'M4 9.5h3.2L12 5.6v12.8l-4.8-3.9H4z');
+    body.setAttribute('fill', 'currentColor');
+    const wave = document.createElementNS(SVG_NS, 'path');
+    wave.setAttribute('d', 'M15.3 9.2a4 4 0 0 1 0 5.6M17.8 6.7a7.5 7.5 0 0 1 0 10.6');
+    wave.setAttribute('fill', 'none');
+    wave.setAttribute('stroke', 'currentColor');
+    wave.setAttribute('stroke-width', '1.8');
+    wave.setAttribute('stroke-linecap', 'round');
+    svg.append(body, wave);
+    return svg;
+  }
+
+  function ipaNode(ipa) {
+    const wrap = el('span', { class: 'lrsr-ipa-text' });
+    wrap.appendChild(el('span', { class: 'lrsr-slash', text: '/' }));
+    const parts = Core.ipaSyllables(ipa);
+    let prevSyl = false;
+    for (const p of parts) {
+      if (p.space) {
+        wrap.appendChild(document.createTextNode(' '));
+        prevSyl = false;
+        continue;
+      }
+      if (p.stress) {
+        wrap.appendChild(el('span', { class: 'lrsr-s' + p.stress, text: (p.stress === 1 ? 'ˈ' : 'ˌ') + p.text }));
+      } else {
+        if (prevSyl) wrap.appendChild(el('span', { class: 'lrsr-dot', text: '.' }));
+        wrap.appendChild(document.createTextNode(p.text));
+      }
+      prevSyl = true;
+    }
+    wrap.appendChild(el('span', { class: 'lrsr-slash', text: '/' }));
+    return wrap;
+  }
+
+  function stopDictEvent(e) {
+    e.stopPropagation();
+  }
+
+  const POS_SHORT = { noun: 'n.', verb: 'v.', adjective: 'adj.', adverb: 'adv.', pronoun: 'pron.', preposition: 'prep.', conjunction: 'conj.', exclamation: 'excl.', determiner: 'det.', 'phrasal verb': 'phr. v.', idiom: 'idiom', 'modal verb': 'modal v.', 'auxiliary verb': 'aux. v.', interjection: 'interj.', number: 'num.' };
+
+  function posLabel(list) {
+    return list.map((p) => POS_SHORT[p.toLowerCase()] || p).join(' / ');
+  }
+
+  function offerConnect(word, near) {
+    const row = near && near.closest('.lrsr-pron, .lln-dict-contextual');
+    const box = row && (row.classList.contains('lrsr-pron') ? row : row.querySelector(':scope > .lrsr-pron'));
+    if (!box || box.querySelector('.lrsr-pron-connect')) return;
+    const last = box.lastElementChild;
+    const src = last && last.querySelector('.lrsr-pron-src');
+    if (src) src.remove();
+    if (last) last.appendChild(connectButton(word));
+  }
+
+  async function pronAction(word, accent, pron, data, btn) {
+    const audio = pron && pron.audio;
+    const camb = data && data.source === 'cambridge' && audio ? audio : null;
+    const used = await playPron([camb || audio, ttsUrl(word, accent)], btn);
+    if (camb && used && used !== camb) {
+      toast(t('pronCambridgeAudioFail'));
+      offerConnect(word, btn || document.querySelector('.lrsr-pron'));
+    }
+  }
+
+  function pronButton(word, accent, pron, preferred, data) {
+    const label = accent.toUpperCase();
+    const cambridge = !!(data && data.source === 'cambridge' && pron && pron.audio);
+    const blocked = !!(data && data.blocked);
+    const btn = el('button', {
+      type: 'button',
+      class: 'lrsr-pron-btn' + (preferred ? ' lrsr-pref' : '') + (cambridge ? '' : ' lrsr-tts'),
+      title: cambridge ? t('pronPlay', { a: label }) : blocked ? t('pronBlockedPlay', { a: label }) : t('pronNoAudio', { a: label }),
+      onmousedown: stopDictEvent,
+      onpointerdown: stopDictEvent,
+      onclick: (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        pronAction(word, accent, pron, data, btn);
+      },
+    });
+    btn.append(svgSpeaker(), el('span', { class: 'lrsr-acc', text: label }));
+    if (pron && pron.ipa) btn.appendChild(ipaNode(pron.ipa));
+    return btn;
+  }
+
+  function preferredPron(entry) {
+    const pref = S.prefs.pronAccent === 'uk' ? 'uk' : 'us';
+    const other = pref === 'uk' ? 'us' : 'uk';
+    if (entry[pref] && entry[pref].ipa) return { accent: pref, pron: entry[pref] };
+    if (entry[other] && entry[other].ipa) return { accent: other, pron: entry[other] };
+    return { accent: pref, pron: entry[pref] || entry[other] || null };
+  }
+
+  function connectButton(word) {
+    return el('button', {
+      type: 'button',
+      class: 'lrsr-pron-connect',
+      title: t('pronConnectTip'),
+      text: t('pronConnect'),
+      onmousedown: stopDictEvent,
+      onpointerdown: stopDictEvent,
+      onclick: (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        connectCambridge(word);
+      },
+    });
+  }
+
+  function renderPron(inline, row, word, data) {
+    inline.classList.remove('lrsr-loading');
+    inline.replaceChildren();
+    row.replaceChildren();
+    const entries = (data && data.entries) || [];
+    const blocked = !!(data && data.blocked);
+    if (!entries.length) {
+      inline.hidden = true;
+      row.hidden = false;
+      const note = el('div', { class: 'lrsr-pron-line' }, [
+        pronButton(word, 'uk', null, S.prefs.pronAccent === 'uk', data),
+        pronButton(word, 'us', null, S.prefs.pronAccent !== 'uk', data),
+        blocked ? connectButton(word) : el('span', { class: 'lrsr-pron-none', text: t('pronNone') }),
+      ]);
+      row.appendChild(note);
+      return;
+    }
+
+    const first = preferredPron(entries[0]);
+    inline.hidden = !first.pron || !first.pron.ipa;
+    if (first.pron && first.pron.ipa) {
+      inline.appendChild(ipaNode(first.pron.ipa));
+      inline.title = t('pronStressTip', { a: first.accent.toUpperCase() });
+      inline.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        pronAction(word, first.accent, first.pron, data, inline);
+      };
+    }
+
+    const pref = S.prefs.pronAccent === 'uk' ? 'uk' : 'us';
+    const multi = entries.length > 1;
+    entries.forEach((entry, i) => {
+      const line = el('div', { class: 'lrsr-pron-line' });
+      if (multi) line.appendChild(el('span', { class: 'lrsr-pos', title: entry.pos.join(', '), text: entry.pos.length ? posLabel(entry.pos) : '·' }));
+      line.appendChild(pronButton(word, 'uk', entry.uk, pref === 'uk', data));
+      line.appendChild(pronButton(word, 'us', entry.us, pref === 'us', data));
+      if (i === entries.length - 1) {
+        if (blocked) {
+          line.appendChild(connectButton(word));
+        } else {
+          const fromCambridge = data.source === 'cambridge';
+          line.appendChild(
+            el('a', {
+              class: 'lrsr-pron-src',
+              href: data.url,
+              target: '_blank',
+              rel: 'noopener',
+              title: fromCambridge ? t('pronSrcTip') : t('pronSrcFreeTip'),
+              text: (fromCambridge ? t('pronSrcCambridge') : t('pronSrcFree')) + ' ↗',
+              onclick: stopDictEvent,
+            })
+          );
+        }
+      }
+      row.appendChild(line);
+    });
+    row.hidden = false;
+
+    if (S.prefs.pronAutoPlay && !blocked && !inline.dataset.played) {
+      inline.dataset.played = '1';
+      const own = entries[0][pref] && entries[0][pref].audio ? entries[0][pref] : first.pron;
+      pronAction(word, own === first.pron ? first.accent : pref, own, data, null);
+    }
+  }
+
+  function removePron(head) {
+    const inline = head.querySelector(':scope > .lrsr-ipa');
+    if (inline) inline.remove();
+    const row = head.parentElement && head.parentElement.querySelector(':scope > .lrsr-pron');
+    if (row) row.remove();
+  }
+
+  function decorateHeadword(head) {
+    const wordEl = head.querySelector(':scope > .lln-dict-word');
+    const word = S.prefs.pron && wordEl && pronLangOk() ? Core.normalizeLookupWord(wordEl.textContent) : null;
+    if (!word) {
+      removePron(head);
+      return;
+    }
+    let inline = head.querySelector(':scope > .lrsr-ipa');
+    let row = head.parentElement && head.parentElement.querySelector(':scope > .lrsr-pron');
+    if (inline && row && inline.dataset.word === word) {
+      if (inline.previousElementSibling !== wordEl) wordEl.after(inline);
+      if (row.previousElementSibling !== head) head.after(row);
+      return;
+    }
+    if (!inline) inline = el('span', { class: 'lrsr-ipa', role: 'button', tabindex: '-1', onmousedown: stopDictEvent, onpointerdown: stopDictEvent });
+    if (!row) row = el('div', { class: 'lrsr-pron' });
+    if (inline.previousElementSibling !== wordEl) wordEl.after(inline);
+    if (row.previousElementSibling !== head) head.after(row);
+    inline.dataset.word = word;
+    delete inline.dataset.played;
+    inline.onclick = null;
+    inline.title = '';
+    inline.hidden = false;
+    inline.classList.add('lrsr-loading');
+    inline.replaceChildren(el('span', { class: 'lrsr-ipa-text', text: '/ … /' }));
+    row.hidden = true;
+    row.replaceChildren();
+    lookupPron(word).then(
+      (data) => {
+        if (inline.dataset.word === word && inline.isConnected) renderPron(inline, row, word, data);
+      },
+      () => {
+        if (inline.dataset.word === word) renderPron(inline, row, word, null);
+      }
+    );
+  }
+
+  function scanPron() {
+    for (const head of document.querySelectorAll('.lln-dict-headword')) decorateHeadword(head);
+  }
+
+  function schedulePronScan() {
+    if (PR.scheduled) return;
+    PR.scheduled = requestAnimationFrame(() => {
+      PR.scheduled = 0;
+      scanPron();
+    });
+  }
+
+  function attachPronObserver() {
+    if (!PR.observer) PR.observer = new MutationObserver(schedulePronScan);
+    for (const node of document.querySelectorAll('.lln-full-dict-wrap, .lln-full-dict, .lln-vv-minidict')) {
+      if (PR.observed.has(node)) continue;
+      PR.observed.add(node);
+      PR.observer.observe(node, { childList: true, subtree: true, characterData: true });
+    }
+    scanPron();
+  }
+
+  function refreshPronAll() {
+    for (const n of document.querySelectorAll('.lrsr-ipa, .lrsr-pron')) n.remove();
+    scanPron();
+  }
+
+  function onPointerDownPron(e) {
+    if (!S.prefs.pron || !S.prefs.pronAutoPlay) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (target && target.closest('.lln-word, .lln-full-dict, .lln-vv-minidict, .lln-highlighted-word')) audioCtx();
+  }
+
   // -------------------------------------------------------------- toolbar
 
   const CSS = `
@@ -1519,6 +2333,37 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
   border:2px solid #f5a623;border-radius:3px;background:transparent;cursor:pointer;z-index:2}
 #lln-vertical-view-subs .lrsr-cb[aria-checked="true"]{background:#f5a623}
 #lln-vertical-view-subs .lrsr-cb[aria-checked="true"]::after{content:"";position:absolute;left:3px;top:0;width:4px;height:8px;border:solid #1a1a1a;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.lrsr-ipa{display:inline-block;margin-left:8px;padding:0 2px;border-radius:4px;cursor:pointer;vertical-align:baseline;white-space:nowrap;
+  font:400 15px/1.4 "Charis SIL","Doulos SIL","Gentium Plus","Segoe UI","Lucida Grande","Noto Sans",Arial,sans-serif;color:#b9c1cc;letter-spacing:.2px}
+.lrsr-ipa[hidden],.lrsr-pron[hidden]{display:none}
+.lrsr-ipa:hover{background:rgba(245,166,35,.14)}
+.lrsr-ipa.lrsr-loading{color:#7d8590;cursor:default;animation:lrsr-pulse .9s ease-in-out infinite alternate}
+.lrsr-ipa.lrsr-playing .lrsr-s1{color:#ffd28a}
+@keyframes lrsr-pulse{from{opacity:.35}to{opacity:.9}}
+.lrsr-ipa-text .lrsr-slash{color:#7d8590;margin:0 1px}
+.lrsr-ipa-text .lrsr-dot{color:#6b7380}
+.lrsr-ipa-text .lrsr-s1{color:#fff;font-weight:700;border-bottom:2px solid #f5a623;padding-bottom:0}
+.lrsr-ipa-text .lrsr-s2{color:#e6e9ee;font-weight:600;border-bottom:1px dashed rgba(245,166,35,.8)}
+.lrsr-pron{display:flex;flex-direction:column;gap:4px;margin:5px -32px 4px 0;font:12px/1.4 Roboto,Arial,sans-serif;direction:ltr}
+.lrsr-pron-line{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+.lrsr-pos{min-width:44px;color:#9aa3ad;font-size:11px;font-style:italic;white-space:nowrap}
+.lrsr-pron-btn{display:inline-flex;align-items:center;gap:4px;margin:0;padding:1px 8px 1px 5px;border-radius:999px;cursor:pointer;white-space:nowrap;
+  border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#dfe3e8;font:inherit;transition:background .12s,border-color .12s}
+.lrsr-pron-btn:hover:not(:disabled){background:rgba(245,166,35,.16);border-color:rgba(245,166,35,.65)}
+.lrsr-pron-btn:disabled{opacity:.4;cursor:default}
+.lrsr-pron-btn.lrsr-pref{border-color:rgba(245,166,35,.45)}
+.lrsr-pron-btn.lrsr-tts{border-style:dashed}
+.lrsr-pron-btn .lrsr-spk{width:14px;height:14px;flex:none;color:#cfd5dc}
+.lrsr-pron-btn.lrsr-playing{background:rgba(245,166,35,.22);border-color:#f5a623}
+.lrsr-pron-btn.lrsr-playing .lrsr-spk{color:#f5a623;animation:lrsr-pulse .45s ease-in-out infinite alternate}
+.lrsr-pron-btn .lrsr-acc{font-size:10px;font-weight:700;letter-spacing:.6px;color:#f5a623}
+.lrsr-pron-btn .lrsr-ipa-text{font-family:"Charis SIL","Doulos SIL","Gentium Plus","Segoe UI","Lucida Grande","Noto Sans",Arial,sans-serif;font-size:13px}
+.lrsr-pron-src{margin-left:auto;color:#7d8590;font-size:10.5px;text-decoration:none;white-space:nowrap}
+.lrsr-pron-src:hover{color:#f5a623;text-decoration:underline}
+.lrsr-pron-connect{margin-left:auto;padding:1px 9px;border-radius:999px;cursor:pointer;white-space:nowrap;font:600 11px/1.5 Roboto,Arial,sans-serif;
+  color:#1a1a1a;background:#f5a623;border:1px solid #f5a623}
+.lrsr-pron-connect:hover{background:#ffb84a}
+.lrsr-pron-none{color:#7d8590;font-size:11px;font-style:italic}
 `;
 
   const UI = { root: null, x: null, y: null, toastTimer: 0, els: {} };
@@ -1560,12 +2405,13 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
     return el('label', null, [el('span', { 'data-i18n': labelKey }), input]);
   }
 
-  function checkboxSetting(labelKey, prefKey) {
+  function checkboxSetting(labelKey, prefKey, onChange) {
     const input = el('input', { type: 'checkbox' });
     input.checked = !!S.prefs[prefKey];
     input.addEventListener('change', () => {
       S.prefs[prefKey] = input.checked;
       savePrefs();
+      if (onChange) onChange();
     });
     return el('label', null, [el('span', { 'data-i18n': labelKey }), input]);
   }
@@ -1605,6 +2451,15 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
       savePrefs();
       applyI18n();
       updateUI();
+      refreshPronAll();
+    });
+
+    E.accentSelect = el('select', null, [el('option', { value: 'us', text: 'US' }), el('option', { value: 'uk', text: 'UK' })]);
+    E.accentSelect.value = S.prefs.pronAccent === 'uk' ? 'uk' : 'us';
+    E.accentSelect.addEventListener('change', () => {
+      S.prefs.pronAccent = E.accentSelect.value;
+      savePrefs();
+      refreshPronAll();
     });
 
     E.fileInput = el('input', { type: 'file', accept: '.srt,.vtt,text/vtt', style: 'display:none' });
@@ -1622,6 +2477,9 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
       numberSetting('sMax', 'maxSentenceMs', 2000, 60000, 500, regroup),
       checkboxSetting('sShortcuts', 'shortcuts'),
       checkboxSetting('sOverride', 'overrideLrAutoPause'),
+      checkboxSetting('sPron', 'pron', refreshPronAll),
+      el('label', null, [el('span', { 'data-i18n': 'sPronAccent' }), E.accentSelect]),
+      checkboxSetting('sPronAuto', 'pronAutoPlay'),
       el('label', null, [el('span', { 'data-i18n': 'sLang' }), E.langSelect]),
       el('div', { class: 'lrsr-row' }, [btn('sFile', null, () => E.fileInput.click()), E.fileClear, E.fileInput]),
       el('div', { class: 'lrsr-row' }, [
@@ -1950,8 +2808,15 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
       attachTranscript();
     }
     syncPauseModes();
+    attachPronObserver();
     updateUI();
     positionToolbar();
+  }
+
+  function onClickPron(e) {
+    const target = e.target instanceof Element ? e.target : null;
+    if (!S.prefs.pron || !target || !target.closest('.lln-word, .lln-highlighted-word, .lln-not-word, .lln-full-dict, .lln-vv-minidict')) return;
+    for (const ms of [30, 200, 600]) setTimeout(attachPronObserver, ms);
   }
 
   function onNavigate() {
@@ -1966,6 +2831,8 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
     window.addEventListener('popstate', onNavigate);
     window.addEventListener('click', onClickCapture, true);
     window.addEventListener('mousedown', onMouseDownCapture, true);
+    window.addEventListener('pointerdown', onPointerDownPron, true);
+    window.addEventListener('click', onClickPron, true);
     window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('resize', () => positionToolbar());
     S.maintTimer = setInterval(maintenance, 500);
@@ -1976,6 +2843,10 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
     log('v' + VERSION + ' loaded');
   }
 
+  if (location.hostname === 'dictionary.cambridge.org') {
+    runCambridgeBridge();
+    return;
+  }
   if (document.body) init();
   else document.addEventListener('DOMContentLoaded', init, { once: true });
 })();

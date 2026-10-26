@@ -304,3 +304,79 @@ test('parseSubtitleFile handles SRT and VTT', () => {
   assert.equal(b[1].begin, 3600500);
   assert.equal(b[1].end, 3601250);
 });
+
+const cambridgeEntry = (pos, uk, us, ukMp3, usMp3) =>
+  '<div class="pos-header dpos-h"><div class="di-title"><span class="headword hdb tw-bw dhw dpos-h_hw "><span class="hw dhw">record</span></span></div>' +
+  '<div class="posgram dpos-g hdib lmr-5"><span class="pos dpos" title="x">' + pos + '</span></div>' +
+  '<span class="uk dpron-i "><span class="region dreg">uk</span><span class="daud"><audio class="hdn" preload="none" id="a1">' +
+  '<source type="audio/mpeg" src="' + ukMp3 + '"/><source type="audio/ogg" src="/x.ogg"/></audio></span>' +
+  '<span class="pron dpron">/<span class="ipa dipa lpr-2 lpl-1">' + uk + '</span>/</span></span> ' +
+  '<span class="us dpron-i "><span class="region dreg">us</span><span class="daud"><audio class="hdn" preload="none" id="a2">' +
+  '<source type="audio/mpeg" src="' + usMp3 + '"/></audio></span>' +
+  '<span class="pron dpron">/<span class="ipa dipa lpr-2 lpl-1">' + us + '</span>/</span></span>' +
+  '</div><div class="pos-body"><span class="us dpron-i "><span class="ipa dipa">WRONG</span></span></div>';
+
+test('parseCambridgeHtml extracts UK/US IPA + audio per part of speech and merges duplicates', () => {
+  const html =
+    cambridgeEntry('noun', 'ˈrek.ɔːd', 'ˈrek.<span class="sp dsp">ɚ</span>d', '/media/english/uk_pron/r/rec/n_uk.mp3', '/media/english/us_pron/r/rec/n_us.mp3') +
+    cambridgeEntry('verb', 'rɪˈkɔːd', 'rɪˈkɔːrd', '/media/english/uk_pron/r/rec/v_uk.mp3', '/media/english/us_pron/r/rec/v_us.mp3') +
+    cambridgeEntry('adjective', 'ˈrek.ɔːd', 'ˈrek.ɚd', '/media/english/uk_pron/r/rec/n_uk.mp3', '/media/english/us_pron/r/rec/n_us.mp3');
+  const r = Core.parseCambridgeHtml(html);
+  assert.equal(r.blocked, false);
+  assert.equal(r.entries.length, 2);
+  assert.deepEqual(r.entries[0].pos, ['noun', 'adjective']);
+  assert.equal(r.entries[0].uk.ipa, 'ˈrek.ɔːd');
+  assert.equal(r.entries[0].us.ipa, 'ˈrek.ɚd');
+  assert.equal(r.entries[0].uk.audio, 'https://dictionary.cambridge.org/media/english/uk_pron/r/rec/n_uk.mp3');
+  assert.equal(r.entries[1].us.ipa, 'rɪˈkɔːrd');
+  assert.equal(r.entries[1].us.audio, 'https://dictionary.cambridge.org/media/english/us_pron/r/rec/v_us.mp3');
+});
+
+test('parseCambridgeHtml detects the Cloudflare challenge page', () => {
+  const r = Core.parseCambridgeHtml('<html><head><title>Just a moment...</title></head><body>cf-chl-x</body></html>');
+  assert.equal(r.blocked, true);
+  assert.equal(r.entries.length, 0);
+});
+
+test('parseFreeDictJson picks UK/US audio and IPA', () => {
+  const data = [
+    {
+      word: 'profound',
+      phonetic: '/pɹəˈfaʊnd/',
+      phonetics: [
+        { text: '/pɹəˈfaʊnd/', audio: 'https://api.dictionaryapi.dev/media/pronunciations/en/profound-uk.mp3' },
+        { text: '/pɹoʊˈfaʊnd/', audio: 'https://api.dictionaryapi.dev/media/pronunciations/en/profound-us.mp3' },
+      ],
+      meanings: [{ partOfSpeech: 'adjective' }, { partOfSpeech: 'noun' }],
+    },
+  ];
+  const e = Core.parseFreeDictJson(data);
+  assert.equal(e.length, 1);
+  assert.equal(e[0].uk.ipa, 'pɹəˈfaʊnd');
+  assert.equal(e[0].us.ipa, 'pɹoʊˈfaʊnd');
+  assert.deepEqual(e[0].pos, ['adjective', 'noun']);
+  assert.deepEqual(Core.parseFreeDictJson({ title: 'No Definitions Found' }), []);
+});
+
+test('ipaSyllables marks primary and secondary stress', () => {
+  assert.deepEqual(Core.ipaSyllables('ˌɪn.təˈnæʃ.ən.əl'), [
+    { text: 'ɪn', stress: 2 },
+    { text: 'tə', stress: 0 },
+    { text: 'næʃ', stress: 1 },
+    { text: 'ən', stress: 0 },
+    { text: 'əl', stress: 0 },
+  ]);
+  assert.deepEqual(Core.ipaSyllables('prəˈfaʊnd'), [
+    { text: 'prə', stress: 0 },
+    { text: 'faʊnd', stress: 1 },
+  ]);
+});
+
+test('normalizeLookupWord and cambridgeUrl', () => {
+  assert.equal(Core.normalizeLookupWord(' Profound, '), 'profound');
+  assert.equal(Core.normalizeLookupWord('I’m'), "i'm");
+  assert.equal(Core.normalizeLookupWord('look up'), 'look up');
+  assert.equal(Core.normalizeLookupWord('sâu sắc'), null);
+  assert.equal(Core.normalizeLookupWord('123'), null);
+  assert.equal(Core.cambridgeUrl('look up'), 'https://dictionary.cambridge.org/dictionary/english/look-up');
+});
