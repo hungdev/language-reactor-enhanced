@@ -7,6 +7,15 @@ A userscript that runs alongside the **Language Reactor (LR) 5.1.8** extension o
 1. **Smart Pause**: pauses at the end of a complete sentence (based on subtitle timing) instead of at the end of every subtitle line.
 2. **Multi-line Replay**: select a contiguous range of rows in LR's transcript panel and replay it once or in a loop.
 
+## Versions and branches
+
+> **This is the `lr-5.1.8` branch**: userscript **1.3.0** for **Language Reactor 5.1.8** (`5.1.8_0/`, `5.1.8_0.zip`). It is kept for reference and is no longer developed. Download: [release v1.3.0](https://github.com/hungdev/language-reactor-enhanced/releases/tag/v1.3.0).
+
+| Branch | Language Reactor | Userscript |
+|---|---|---|
+| [`master`](https://github.com/hungdev/language-reactor-enhanced/tree/master) | 6.0.0 | latest (1.5.0+): IPA + Cambridge pronunciation, also works with LR 5.1.8 |
+| `lr-5.1.8` (this branch) | 5.1.8 | 1.3.0 |
+
 ## Installation
 
 1. Install Tampermonkey in Chrome (macOS). On Chrome MV3, enable **Developer mode** at `chrome://extensions` (or turn on "Allow User Scripts" in Tampermonkey's details page) so Tampermonkey is allowed to run userscripts.

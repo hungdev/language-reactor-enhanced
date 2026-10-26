@@ -7,6 +7,15 @@ Userscript chạy song song với extension **Language Reactor (LR) 5.1.8** trê
 1. **Smart Pause (Tự dừng câu)**: dừng ở cuối một câu hoàn chỉnh (theo timing phụ đề), thay vì dừng ở cuối mỗi dòng phụ đề.
 2. **Multi-line Replay**: chọn một khoảng dòng liên tục trong panel transcript bên phải của LR, phát lại một lần hoặc lặp.
 
+## Phiên bản và nhánh
+
+> **Đây là nhánh `lr-5.1.8`**: userscript **1.3.0** cho **Language Reactor 5.1.8** (`5.1.8_0/`, `5.1.8_0.zip`). Nhánh được giữ để tham khảo, không phát triển tiếp. Tải về: [release v1.3.0](https://github.com/hungdev/language-reactor-enhanced/releases/tag/v1.3.0).
+
+| Nhánh | Language Reactor | Userscript |
+|---|---|---|
+| [`master`](https://github.com/hungdev/language-reactor-enhanced/tree/master) | 6.0.0 | bản mới nhất (1.5.0 trở lên): có phiên âm IPA + phát âm Cambridge, vẫn chạy được với LR 5.1.8 |
+| `lr-5.1.8` (nhánh này) | 5.1.8 | 1.3.0 |
+
 ## Cài đặt
 
 1. Cài Tampermonkey trên Chrome (macOS). Với Chrome MV3, bật **Developer mode** tại `chrome://extensions` (hoặc bật "Allow User Scripts" trong chi tiết Tampermonkey) để Tampermonkey được chạy userscript.
