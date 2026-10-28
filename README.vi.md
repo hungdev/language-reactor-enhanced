@@ -54,7 +54,7 @@ Quy tắc chọn dòng:
 
 **Smart Pause** và **Dừng mỗi dòng** loại trừ nhau: bật cái này sẽ tắt cái kia, và có thể tắt cả hai. "Dừng mỗi dòng" chính là auto-pause của LR, nên công tắc "AP" và phím `Q` của LR luôn đồng bộ với nút này; bấm `Q` khi đang bật Smart Pause sẽ tắt Smart Pause kèm thông báo. Thanh trạng thái hiện chế độ đang dùng ("Tự dừng câu: BẬT", "Dừng mỗi dòng: BẬT" hoặc "Tự dừng: TẮT").
 
-Trong lúc Replay, tùy chọn *"Bỏ qua auto-pause của LR trong lúc phát lại"* (mặc định bật) cho phép script tự phát tiếp khi chính LR dừng ở cuối một dòng bên trong khoảng chọn. Script chỉ làm vậy khi LR đánh dấu là tự dừng (`body[lln-player-state="lln-auto-paused"]`) và vị trí phát nằm sát cuối một cue. Người dùng tự bấm dừng thì video không bao giờ bị tự phát lại.
+Khi bật Line Pause, Replay vẫn dừng ở cuối mỗi dòng trong khoảng chọn; bấm Play để nghe tiếp. Khi LR dừng ở dòng cuối của khoảng chọn (`body[lln-player-state="lln-auto-paused"]`), Replay kết thúc tại đó, hoặc quay lại dòng đầu nếu đang bật Loop.
 
 ## Giới hạn đã biết
 

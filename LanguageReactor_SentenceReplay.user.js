@@ -612,7 +612,6 @@
     gapBreakMs: Core.DEFAULT_GROUP_OPTS.gapBreakMs,
     maxSentenceMs: Core.DEFAULT_GROUP_OPTS.maxSentenceMs,
     shortcuts: true,
-    overrideLrAutoPause: true,
     lang: 'auto',
     collapsed: false,
     toolbarPos: null,
@@ -659,7 +658,7 @@
       smartOffForLine: 'LR auto-pause was turned on: Smart Pause turned off (only one pause mode at a time).',
       settings: 'Settings',
       collapse: 'Collapse/expand',
-      lrWarn: 'LR auto-pause is ON: it pauses at every subtitle line and conflicts with Smart Pause/Replay.',
+      lrWarn: 'LR auto-pause is ON: it pauses at every subtitle line and conflicts with Smart Pause.',
       lrFix: 'Turn off LR auto-pause',
       lrFixFailed: 'Could not change LR auto-pause. Press Q (LR shortcut) or untick it in LR.',
       srcLr: 'Source: Language Reactor · {n} cues · {g} sentences{p}',
@@ -695,7 +694,6 @@
       sGap: 'Silence that forces a sentence break (ms)',
       sMax: 'Maximum sentence length before forced pause (ms)',
       sShortcuts: 'Keyboard shortcuts (Z, Shift+R/L/X/S/E)',
-      sOverride: 'Ignore LR auto-pause inside a replay',
       sLang: 'Language',
       sFile: 'Load .srt/.vtt for this video (fallback)',
       sFileClear: 'Use LR subtitles again',
@@ -755,7 +753,7 @@
       smartOffForLine: 'Auto-pause của LR vừa được bật: đã tắt Tự dừng câu (mỗi lúc chỉ dùng một chế độ dừng).',
       settings: 'Cài đặt',
       collapse: 'Thu gọn/mở rộng',
-      lrWarn: 'Auto-pause của LR đang BẬT: nó dừng ở mọi dòng phụ đề và xung đột với Tự dừng câu/Phát lại.',
+      lrWarn: 'Auto-pause của LR đang BẬT: nó dừng ở mọi dòng phụ đề và xung đột với Tự dừng câu.',
       lrFix: 'Tắt auto-pause của LR',
       lrFixFailed: 'Không đổi được auto-pause của LR. Nhấn Q (phím tắt LR) hoặc bỏ tick trong LR.',
       srcLr: 'Nguồn: Language Reactor · {n} dòng · {g} câu{p}',
@@ -791,7 +789,6 @@
       sGap: 'Khoảng lặng buộc ngắt câu (ms)',
       sMax: 'Độ dài câu tối đa trước khi buộc dừng (ms)',
       sShortcuts: 'Phím tắt (Z, Shift+R/L/X/S/E)',
-      sOverride: 'Bỏ qua auto-pause của LR trong lúc phát lại',
       sLang: 'Ngôn ngữ',
       sFile: 'Nạp .srt/.vtt cho video này (dự phòng)',
       sFileClear: 'Dùng lại phụ đề của LR',
@@ -1017,16 +1014,12 @@
     clearBoundaryTimer();
     const v = S.video;
     const ours = performance.now() < S.ourPauseUntil;
-    if (!ours && v && S.replay && S.prefs.overrideLrAutoPause && isLrAutoHold() && nearCueEnd(v.currentTime * 1000)) {
+    if (!ours && v && S.replay && isLrAutoHold() && nearCueEnd(v.currentTime * 1000)) {
       const now = v.currentTime * 1000;
       const lastCue = S.cues[S.replay.hi];
       const atFinalCue = !!lastCue && now >= lastCue.end - 80;
-      if (performance.now() - S.lastOverrideAt > 300) {
+      if (atFinalCue && performance.now() - S.lastOverrideAt > 300) {
         S.lastOverrideAt = performance.now();
-        if (!atFinalCue) {
-          playVideo();
-          return;
-        }
         if (S.prefs.loop) {
           S.replay.loops++;
           seekTo(S.replay.start);
@@ -2476,7 +2469,6 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
       numberSetting('sGap', 'gapBreakMs', 300, 10000, 100, regroup),
       numberSetting('sMax', 'maxSentenceMs', 2000, 60000, 500, regroup),
       checkboxSetting('sShortcuts', 'shortcuts'),
-      checkboxSetting('sOverride', 'overrideLrAutoPause'),
       checkboxSetting('sPron', 'pron', refreshPronAll),
       el('label', null, [el('span', { 'data-i18n': 'sPronAccent' }), E.accentSelect]),
       checkboxSetting('sPronAuto', 'pronAutoPlay'),
@@ -2648,7 +2640,7 @@ body.lrsr-select-mode #lln-vertical-view-subs .lln-sub-play-btn{visibility:hidde
       E.src.textContent = cueUnavailableMessage();
     }
 
-    const conflict = lrAp === true && (S.prefs.smartPause || (!!S.replay && !S.prefs.overrideLrAutoPause));
+    const conflict = lrAp === true && S.prefs.smartPause;
     E.warn.classList.toggle('on', conflict);
   }
 

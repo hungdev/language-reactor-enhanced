@@ -54,7 +54,7 @@ Selection rules:
 
 **Smart Pause** and **Line Pause** are mutually exclusive: turning one on turns the other off, and both can be off. Line Pause is LR's own auto-pause, so LR's "AP" switch and the `Q` key stay in sync with it; pressing `Q` while Smart Pause is on turns Smart Pause off with a notice. The status line shows the active mode ("Smart Pause ON", "Line Pause ON" or "Auto-pause OFF").
 
-During a replay, the *"Ignore LR auto-pause inside a replay"* setting (on by default) lets the script resume playback when LR itself pauses at the end of a line inside the selected range. The script only does this when LR marks the pause as automatic (`body[lln-player-state="lln-auto-paused"]`) and the playhead is right at the end of a cue. A pause made by the user is never resumed automatically.
+With Line Pause on, a replay still pauses at the end of every line inside the selected range; press Play to continue. When LR pauses at the last line of the range (`body[lln-player-state="lln-auto-paused"]`), the replay ends there, or restarts from the first line when Loop is on.
 
 ## Known limitations
 
