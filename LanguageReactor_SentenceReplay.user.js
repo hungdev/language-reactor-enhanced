@@ -32,9 +32,12 @@
     const STRONG_END = '?!？！。';
     const ABBREVIATIONS = new Set([
       'mr', 'mrs', 'ms', 'mx', 'dr', 'prof', 'sr', 'jr', 'st', 'vs', 'mt', 'ft', 'gen', 'col', 'lt', 'sgt',
-      'capt', 'rev', 'hon', 'gov', 'sen', 'rep', 'pres', 'inc', 'ltd', 'co', 'corp', 'no', 'vol', 'approx',
-      'dept', 'est', 'fig', 'cf', 'al', 'ave', 'blvd', 'rd', 'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug',
-      'sep', 'sept', 'oct', 'nov', 'dec', 'p', 'pp', 'ch', 'sec', 'min', 'max',
+      'capt', 'rev', 'hon', 'gov', 'sen', 'rep', 'pres', 'inc', 'ltd', 'co', 'corp', 'approx',
+      'dept', 'cf', 'al', 'ave', 'blvd', 'rd',
+    ]);
+    const NUMERIC_ABBREVIATIONS = new Set([
+      'no', 'vol', 'est', 'fig', 'p', 'pp', 'ch', 'sec', 'min', 'max', 'jan', 'feb', 'mar', 'apr', 'jun', 'jul',
+      'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
     ]);
     const NEVER_END_ACRONYMS = new Set(['e.g', 'i.e', 'a.k.a', 'viz']);
     const SOUND_TAG_RE = /^\s*(\[[^\]]*\]|\([^)]*\)|♪[^♪]*♪?|♪+)\s*$/;
@@ -101,6 +104,7 @@
 
       if (NEVER_END_ACRONYMS.has(lower)) return 'continue';
       if (ABBREVIATIONS.has(lower)) return 'continue';
+      if (NUMERIC_ABBREVIATIONS.has(lower) && next && next.digit) return 'continue';
       if (/^[A-Z]$/.test(core) && next && next.upper) return 'continue';
       if (/^([a-z]\.)+[a-z]$/i.test(core)) {
         if (!next) return 'end';

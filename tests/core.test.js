@@ -59,6 +59,18 @@ test('abbreviations and initials do not end sentences', () => {
   assert.equal(Core.classifyEnding('apples, pears, etc.', 'were on sale.'), 'continue');
 });
 
+test('words that double as numeric abbreviations end a sentence unless a number follows', () => {
+  assert.equal(Core.classifyEnding("She'll probably say no.", 'But I could be like, "That was me just now'), 'end');
+  assert.equal(Core.classifyEnding('Wait a sec.', 'I need my keys.'), 'end');
+  assert.equal(Core.classifyEnding('Turn it up to the max.', 'Louder!'), 'end');
+  assert.equal(Core.classifyEnding('It happened in Dec.', 'Nobody noticed.'), 'end');
+  assert.equal(Core.classifyEnding('See No.', '5 on the list.'), 'continue');
+  assert.equal(Core.classifyEnding('as shown in Fig.', '3 below.'), 'continue');
+  assert.equal(Core.classifyEnding('turn to p.', '12 now.'), 'continue');
+  assert.equal(Core.classifyEnding('It was on Jan.', '5th.'), 'continue');
+  assert.equal(Core.classifyEnding('Say no.', null), 'end');
+});
+
 test('decimals and ellipses are conservative', () => {
   assert.equal(Core.classifyEnding('pi is about 3.', '14 or so.'), 'continue');
   assert.equal(Core.classifyEnding('It costs 3.14.', 'Cheap.'), 'end');
